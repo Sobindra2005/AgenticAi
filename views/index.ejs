@@ -1,0 +1,43 @@
+
+
+<section class="workspace">
+  <form class="panel controls" action="/run" method="post">
+    <div class="panel-heading">
+      <span class="step">01</span>
+      <div>
+        <h2>Input</h2>
+        <p>Enter anything you want to send to your custom workflow.</p>
+      </div>
+    </div>
+
+    <label class="field-label" for="input">Your input</label>
+    <textarea class="text-input input-area" id="input" name="input" placeholder="Type something to pass in..." autocomplete="off"><%= input %></textarea>
+    <button class="run-button" type="submit">Run <span>↗</span></button>
+  </form>
+
+  <section class="panel output-panel">
+    <div class="panel-heading">
+      <span class="step">02</span>
+      <div>
+        <h2>Output</h2>
+        <p>Your complete workflow response appears here.</p>
+      </div>
+      <% if (result) { %><span class="result-badge">Complete</span><% } %>
+    </div>
+
+    <% if (error) { %>
+      <div class="error-box"><strong>Execution error</strong><%= error %></div>
+    <% } else if (result) { %>
+      <div class="output-meta"><span>WORKFLOW RESPONSE</span><span>JSON</span></div>
+      <pre class="output"><code><%= JSON.stringify(result, null, 2) %></code></pre>
+    <% } else { %>
+      <div class="empty-output"><span class="empty-mark">⌁</span><strong>Nothing run yet</strong><p>Your workflow response will appear here.</p></div>
+    <% } %>
+  </section>
+</section>
+
+<footer>
+  <span>Custom logic</span>
+  <code>src/workflow.ts</code>
+  <span class="footer-note">Change <code>runWorkflow()</code> to practice</span>
+</footer>
