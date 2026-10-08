@@ -1,38 +1,66 @@
-
-
+<style>
+  body {
+    overflow: hidden; /* Prevent full page from scrolling */
+  }
+  .shell {
+    width: 1400px !important;
+    max-width: 95vw !important;
+    margin: 0 auto !important;
+    padding: 32px 0 16px 0 !important;
+    height: 100vh !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .workspace {
+    grid-template-columns: 2.5fr 1fr !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+    height: auto !important;
+  }
+  .chat-panel, .output-panel {
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+  
+  /* Force text to wrap to the next line instead of overflowing horizontally */
+  .chat-history div, pre.output {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+  }
+</style>
 <section class="workspace">
-  <form class="panel controls" action="/run" method="post">
+  <div class="panel chat-panel" style="display: flex; flex-direction: column; height: 100%; max-height: 100%; padding: 20px;">
     <div class="panel-heading">
       <span class="step">01</span>
       <div>
-        <h2>Input</h2>
-        <p>Enter anything you want to send to your custom workflow.</p>
+        <h2>Agent Chat</h2>
+        <p>Talk to your custom workflow.</p>
       </div>
     </div>
 
-    <label class="field-label" for="input">Your input</label>
-    <textarea class="text-input input-area" id="input" name="input" placeholder="Type something to pass in..." autocomplete="off"><%= input %></textarea>
-    <button class="run-button" type="submit">Run <span>↗</span></button>
-  </form>
+    <div id="chat-history" class="chat-history" style="flex: 1; overflow-y: auto; margin: 16px 0; display: flex; flex-direction: column; gap: 12px; padding-right: 8px; min-height: 0; max-height: 100%; scroll-behavior: smooth;">
+      <!-- Chat messages will appear here -->
+    </div>
 
-  <section class="panel output-panel">
+    <form id="chat-form" style="display: flex; gap: 10px; align-items: flex-end;">
+      <textarea class="text-input" id="chat-input" placeholder="Type your message... (Press Enter to send)" style="flex: 1; min-height: 50px; height: 50px; resize: none;"></textarea>
+      <button class="run-button" type="submit" style="width: auto; margin: 0; padding: 12px 24px;">Send <span>↗</span></button>
+    </form>
+  </div>
+
+  <section class="panel output-panel" style="display: flex; flex-direction: column; height: 100%; max-height: 100%; padding: 20px;">
     <div class="panel-heading">
       <span class="step">02</span>
       <div>
-        <h2>Output</h2>
-        <p>Your complete workflow response appears here.</p>
+        <h2>Debug Info</h2>
+        <p>Raw workflow response preserved here.</p>
       </div>
-      <% if (result) { %><span class="result-badge">Complete</span><% } %>
     </div>
 
-    <% if (error) { %>
-      <div class="error-box"><strong>Execution error</strong><%= error %></div>
-    <% } else if (result) { %>
-      <div class="output-meta"><span>WORKFLOW RESPONSE</span><span>JSON</span></div>
-      <pre class="output"><code><%= JSON.stringify(result, null, 2) %></code></pre>
-    <% } else { %>
-      <div class="empty-output"><span class="empty-mark">⌁</span><strong>Nothing run yet</strong><p>Your workflow response will appear here.</p></div>
-    <% } %>
+    <div id="debug-content" style="flex: 1; overflow-y: auto; min-height: 0; max-height: 100%;">
+      <div class="empty-output"><span class="empty-mark">⌁</span><strong>No debug data</strong><p>Run a message to see the payload.</p></div>
+    </div>
   </section>
 </section>
 
@@ -41,3 +69,137 @@
   <code>src/workflow.ts</code>
   <span class="footer-note">Change <code>runWorkflow()</code> to practice</span>
 </footer>
+
+<script>
+  const chatForm = document.getElementById('chat-form');
+  const chatInput = document.getElementById('chat-input');
+  const chatHistory = document.getElementById('chat-history');
+  const debugContent = document.getElementById('debug-content');
+
+  // Handle Enter to submit (Shift+Enter for new line)
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      chatForm.dispatchEvent(new Event('submit'));
+    }
+  });
+
+  chatForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    // Add user message to UI
+    appendMessage('user', message);
+    chatInput.value = '';
+    
+    // Disable inputs while thinking/streaming to prevent double submissions
+    chatInput.disabled = true;
+    chatForm.querySelector('button').disabled = true;
+
+    // Create the AI response bubble with a thinking state
+    const msgId = appendMessage('assistant', '');
+    const msgDiv = document.getElementById(msgId);
+    msgDiv.innerHTML = '<span style="color: var(--muted); font-style: italic;">Thinking...</span>';
+    
+    let receivedFirstChunk = false;
+    const source = new EventSource('/api/stream?input=' + encodeURIComponent(message));
+    
+    source.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      
+      if (data.error) {
+        msgDiv.textContent = 'Error: ' + data.error;
+        msgDiv.style.backgroundColor = '#281613';
+        msgDiv.style.color = '#ffc1b6';
+        msgDiv.style.borderLeft = '3px solid var(--orange)';
+        cleanup();
+        return;
+      }
+      
+      if (data.done) {
+        // Stream complete - Update debug panel with raw JSON
+        debugContent.innerHTML = `
+          <div class="output-meta"><span>WORKFLOW RESPONSE</span><span>JSON</span></div>
+          <pre class="output"><code>${escapeHtml(JSON.stringify(data, null, 2))}</code></pre>
+        `;
+        cleanup();
+        return;
+      }
+      
+      if (!receivedFirstChunk) {
+        msgDiv.textContent = ''; // clear "Thinking..."
+        receivedFirstChunk = true;
+      }
+      
+      msgDiv.textContent += data.chunk;
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+    };
+    
+    source.onerror = () => {
+      if (!receivedFirstChunk) {
+        msgDiv.textContent = 'Error: Failed to connect to stream.';
+        msgDiv.style.backgroundColor = '#281613';
+        msgDiv.style.color = '#ffc1b6';
+        msgDiv.style.borderLeft = '3px solid var(--orange)';
+      }
+      cleanup();
+    };
+
+    function cleanup() {
+      source.close();
+      chatInput.disabled = false;
+      chatForm.querySelector('button').disabled = false;
+      chatInput.focus();
+    }
+  });
+
+  function appendMessage(role, text) {
+    const msgDiv = document.createElement('div');
+    const id = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    msgDiv.id = id;
+    
+    // Basic styling for chat bubbles
+    msgDiv.style.padding = '12px 16px';
+    msgDiv.style.borderRadius = '8px';
+    msgDiv.style.maxWidth = '85%';
+    msgDiv.style.lineHeight = '1.5';
+    msgDiv.style.fontSize = '14px';
+    msgDiv.style.wordBreak = 'break-word';
+    msgDiv.style.whiteSpace = 'pre-wrap';
+    
+    if (role === 'user') {
+      msgDiv.style.alignSelf = 'flex-end';
+      msgDiv.style.backgroundColor = 'var(--accent)';
+      msgDiv.style.color = '#0d100f';
+    } else if (role === 'assistant') {
+      msgDiv.style.alignSelf = 'flex-start';
+      msgDiv.style.backgroundColor = 'var(--line)';
+      msgDiv.style.color = 'var(--ink)';
+    } else if (role === 'error') {
+      msgDiv.style.alignSelf = 'flex-start';
+      msgDiv.style.backgroundColor = '#281613';
+      msgDiv.style.borderLeft = '3px solid var(--orange)';
+      msgDiv.style.color = '#ffc1b6';
+    } else if (role === 'system') {
+      msgDiv.style.alignSelf = 'flex-start';
+      msgDiv.style.backgroundColor = 'transparent';
+      msgDiv.style.color = 'var(--muted)';
+      msgDiv.style.fontStyle = 'italic';
+    }
+    
+    msgDiv.textContent = text;
+    chatHistory.appendChild(msgDiv);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+    return id;
+  }
+
+  function escapeHtml(unsafe) {
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+  }
+</script>

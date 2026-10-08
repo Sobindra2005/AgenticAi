@@ -3,7 +3,7 @@ import express from "express";
 import expressLayouts from "express-ejs-layouts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runWorkflow } from "./workflow.js";
+import { runWorkflow, runWorkflowStream } from "./workflow.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const currentFile = fileURLToPath(import.meta.url);
@@ -46,6 +46,35 @@ app.post("/run", async (request, response) => {
 
 app.get("/api/run", async (request, response) => {
   response.json(await runWorkflow(String(request.query.input ?? "")));
+});
+
+app.get("/api/stream", async (request, response) => {
+  const input = String(request.query.input ?? "").trim();
+  if (!input) {
+    return response.status(400).end();
+  }
+
+  response.setHeader('Content-Type', 'text/event-stream');
+  response.setHeader('Cache-Control', 'no-cache');
+  response.setHeader('Connection', 'keep-alive');
+
+  try {
+    const stream = await runWorkflowStream(input);
+    let fullOutput = "";
+
+    for await (const chunk of stream) {
+      const content = chunk.content.toString();
+      fullOutput += content;
+      response.write(`data: ${JSON.stringify({ chunk: content })}\n\n`);
+    }
+
+    response.write(`data: ${JSON.stringify({ done: true, fullOutput })}\n\n`);
+    response.end();
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    response.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
+    response.end();
+  }
 });
 
 app.use((_request, response) => {
