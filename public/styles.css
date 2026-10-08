@@ -75,4 +75,14 @@ h2 { margin: 0 0 5px; font-size: 19px; font-weight: 600; }
 footer { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; color: var(--muted); font-size: 10px; }
 footer code { padding: 5px 7px; color: #c6cbc5; border: 1px solid var(--line); background: var(--panel); }
 .footer-note { margin-left: auto; }
+
+/* Thinking Block Styles */
+.think-block { margin: 12px 0; border-left: 2px solid var(--muted); background: color-mix(in srgb, var(--panel) 50%, transparent); padding: 12px 16px; border-radius: 4px; font-size: 0.9em; color: var(--muted); }
+.think-block summary { cursor: pointer; font-weight: 500; font-family: 'DM Mono', monospace; color: var(--accent); margin-bottom: 8px; list-style: none; outline: none; }
+.think-block summary::-webkit-details-marker { display: none; }
+.think-block summary::before { content: '▶ '; font-size: 0.8em; display: inline-block; transition: transform 0.2s; }
+.think-block details[open] summary::before { transform: rotate(90deg); }
+.think-block details[open] summary { margin-bottom: 12px; }
+.think-content { opacity: 0.8; white-space: pre-wrap; }
+
 @media (max-width: 760px) { .shell { width: min(100% - 28px, 560px); padding-top: 38px; } .hero { display: block; padding-bottom: 32px; } .status { margin-top: 25px; } .workspace { grid-template-columns: 1fr; } .panel { padding: 20px; } .footer-note { width: 100%; margin-left: 0; } }

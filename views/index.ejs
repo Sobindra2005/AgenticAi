@@ -23,11 +23,18 @@
   }
   
   /* Force text to wrap to the next line instead of overflowing horizontally */
-  .chat-history div, pre.output {
+  .user-message, pre.output {
     white-space: pre-wrap !important;
+  }
+  .chat-history div {
     word-break: break-word !important;
     overflow-wrap: break-word !important;
   }
+  /* Basic markdown styling for assistant messages */
+  .assistant-message p { margin: 0 0 10px 0; }
+  .assistant-message p:last-child { margin-bottom: 0; }
+  .assistant-message pre { background: #000; padding: 10px; border-radius: 4px; overflow-x: auto; margin: 10px 0; }
+  .assistant-message code { font-family: 'DM Mono', monospace; background: #000; padding: 2px 4px; border-radius: 3px; font-size: 0.9em; }
 </style>
 <section class="workspace">
   <div class="panel chat-panel" style="display: flex; flex-direction: column; height: 100%; max-height: 100%; padding: 20px;">
@@ -76,6 +83,41 @@
   const chatHistory = document.getElementById('chat-history');
   const debugContent = document.getElementById('debug-content');
 
+  const md = window.markdownit({ html: true, breaks: true });
+
+  function escapeHtml(unsafe) {
+    return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                         .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  }
+
+  function formatAIResponse(text) {
+    let htmlContent = "";
+    
+    // Find <think> boundaries
+    const thinkStart = text.indexOf('<think>');
+    const thinkEnd = text.indexOf('</think>');
+    
+    if (thinkStart !== -1) {
+      if (thinkEnd !== -1) {
+        // The thinking is complete
+        const thinkText = text.substring(thinkStart + 7, thinkEnd).trim();
+        const remainingText = text.substring(thinkEnd + 8).trim();
+        
+        htmlContent += `<div class="think-block"><details><summary>Thinking Process</summary><div class="think-content">${escapeHtml(thinkText)}</div></details></div>`;
+        htmlContent += md.render(remainingText);
+      } else {
+        // Still currently thinking
+        const thinkText = text.substring(thinkStart + 7).trim();
+        htmlContent += `<div class="think-block"><details open><summary>Thinking Process</summary><div class="think-content">${escapeHtml(thinkText)}</div></details></div>`;
+      }
+    } else {
+      // Normal response without any <think> tags
+      htmlContent = md.render(text);
+    }
+    
+    return htmlContent;
+  }
+
   // Handle Enter to submit (Shift+Enter for new line)
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -102,7 +144,7 @@
     const msgDiv = document.getElementById(msgId);
     msgDiv.innerHTML = '<span style="color: var(--muted); font-style: italic;">Thinking...</span>';
     
-    let receivedFirstChunk = false;
+    let accumulatedText = "";
     const source = new EventSource('/api/stream?input=' + encodeURIComponent(message));
     
     source.onmessage = (event) => {
@@ -127,17 +169,16 @@
         return;
       }
       
-      if (!receivedFirstChunk) {
-        msgDiv.textContent = ''; // clear "Thinking..."
-        receivedFirstChunk = true;
-      }
+      // Accumulate tokens
+      accumulatedText += data.chunk;
       
-      msgDiv.textContent += data.chunk;
+      // Update DOM with beautifully parsed <think> blocks
+      msgDiv.innerHTML = formatAIResponse(accumulatedText);
       chatHistory.scrollTop = chatHistory.scrollHeight;
     };
     
     source.onerror = () => {
-      if (!receivedFirstChunk) {
+      if (accumulatedText === "") {
         msgDiv.textContent = 'Error: Failed to connect to stream.';
         msgDiv.style.backgroundColor = '#281613';
         msgDiv.style.color = '#ffc1b6';
@@ -166,13 +207,14 @@
     msgDiv.style.lineHeight = '1.5';
     msgDiv.style.fontSize = '14px';
     msgDiv.style.wordBreak = 'break-word';
-    msgDiv.style.whiteSpace = 'pre-wrap';
     
     if (role === 'user') {
+      msgDiv.className = 'user-message';
       msgDiv.style.alignSelf = 'flex-end';
       msgDiv.style.backgroundColor = 'var(--accent)';
       msgDiv.style.color = '#0d100f';
     } else if (role === 'assistant') {
+      msgDiv.className = 'assistant-message';
       msgDiv.style.alignSelf = 'flex-start';
       msgDiv.style.backgroundColor = 'var(--line)';
       msgDiv.style.color = 'var(--ink)';

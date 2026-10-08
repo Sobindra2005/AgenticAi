@@ -12,12 +12,11 @@ export const llm = new ChatGroq({
 })
 
 
-export const getLLm = () => {
+export const getLocalLLm = () => {
     return new ChatOllama({
-        model: "qwen3:4b",
+        model: "deepseek-r1:1.5b",
         baseUrl: "http://localhost:11434", // Default Ollama local endpoint,
-        temperature: 0.4,
-        think: false,
+        temperature: 1,
     });
 
 }

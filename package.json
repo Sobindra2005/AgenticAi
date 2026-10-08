@@ -17,7 +17,8 @@
     "ejs": "^6.0.1",
     "express": "^5.2.1",
     "express-ejs-layouts": "^2.5.1",
-    "langchain": "^1.5.14"
+    "langchain": "^1.5.14",
+    "markdown-it": "^15.0.2"
   },
   "devDependencies": {
     "@types/ejs": "^3.1.5",
