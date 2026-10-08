@@ -1,4 +1,5 @@
 import { ChatOllama } from "@langchain/ollama";
+import { getLLm } from "./llm.js";
 
 export type WorkflowResult = {
   input: string;
@@ -10,10 +11,7 @@ export async function runWorkflow(input: string): Promise<WorkflowResult> {
     throw new Error("Please enter some input before running the workflow.");
   }
 
-  const llm = new ChatOllama({
-    model: "qwen2.5:0.5b",
-    baseUrl: "http://localhost:11434", // Default Ollama local endpoint
-  });
+  const llm = getLLm()
 
   const response = await llm.invoke(input);
 
@@ -28,10 +26,7 @@ export async function runWorkflowStream(input: string) {
     throw new Error("Please enter some input before running the workflow.");
   }
 
-  const llm = new ChatOllama({
-    model: "qwen2.5:0.5b",
-    baseUrl: "http://localhost:11434", // Default Ollama local endpoint
-  });
+  const llm = getLLm()
 
   return await llm.stream(input);
 }
