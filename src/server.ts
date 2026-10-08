@@ -61,11 +61,41 @@ app.get("/api/stream", async (request, response) => {
   try {
     const stream = await runWorkflowStream(input);
     let fullOutput = "";
+    let isThinking = false;
 
     for await (const chunk of stream) {
-      const content = chunk.content.toString();
-      fullOutput += content;
-      response.write(`data: ${JSON.stringify({ chunk: content })}\n\n`);
+      // @ts-ignore - Handle possible reasoning_content from Ollama or similar models
+      const reasoning = chunk.additional_kwargs?.reasoning_content ? chunk.additional_kwargs.reasoning_content.toString() : "";
+      const content = chunk.content ? chunk.content.toString() : "";
+      
+      let chunkTextToSend = "";
+
+      if (reasoning) {
+        if (!isThinking) {
+          chunkTextToSend += "<think>\n";
+          isThinking = true;
+        }
+        chunkTextToSend += reasoning;
+      }
+
+      if (content) {
+        if (isThinking) {
+          chunkTextToSend += "\n</think>\n";
+          isThinking = false;
+        }
+        chunkTextToSend += content;
+      }
+
+      if (chunkTextToSend) {
+        fullOutput += chunkTextToSend;
+        response.write(`data: ${JSON.stringify({ chunk: chunkTextToSend })}\n\n`);
+      }
+    }
+
+    if (isThinking) {
+      const closing = "\n</think>\n";
+      fullOutput += closing;
+      response.write(`data: ${JSON.stringify({ chunk: closing })}\n\n`);
     }
 
     response.write(`data: ${JSON.stringify({ done: true, fullOutput })}\n\n`);
