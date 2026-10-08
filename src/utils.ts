@@ -1,5 +1,6 @@
 import { ChatGroq } from "@langchain/groq";
 import { ChatOllama } from "@langchain/ollama";
+import { TavilySearch } from "@langchain/tavily";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -20,3 +21,18 @@ export const getLocalLLm = () => {
     });
 
 }
+
+
+export const getTavily = () => {
+    const tavily = new TavilySearch({
+        maxResults: 5,
+        tavilyApiKey: process.env.TAVILY_API_KEY
+    })
+    return tavily;
+}
+
+// const interactWithTavily = async (input: string) => {
+//     const result = await getTavily().invoke({ query: input })
+//     console.log(result)
+// }
+// interactWithTavily("weather of pokhara").then((result) => console.log(result))

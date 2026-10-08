@@ -1,4 +1,4 @@
-import { getLocalLLm } from "./llm.js";
+import { getLocalLLm } from "./utils.js";
 
 export type WorkflowResult = {
   input: string;
