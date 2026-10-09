@@ -154,7 +154,7 @@
   const btnClearTrace = document.getElementById('btn-clear-trace');
   const btnAddToKb = document.getElementById('btn-add-to-kb');
   const selectedKbCount = document.getElementById('selected-kb-count');
-  const selectedSourceUrls = new Set();
+  const unselectedSourceUrls = new Set();
 
   // Setup Prompt Chips
   document.querySelectorAll('.chip').forEach(btn => {
@@ -339,7 +339,8 @@
   }
 
   function updateAddToKbButton() {
-    const validSelected = Array.from(selectedSourceUrls).filter(url => !allKB.some(k => k.sourceUrl === url));
+    // Valid selected are sources that are NOT in KB and NOT explicitly unchecked
+    const validSelected = allSources.filter(s => !allKB.some(k => k.sourceUrl === s.url) && !unselectedSourceUrls.has(s.url));
     if (selectedKbCount) selectedKbCount.textContent = validSelected.length;
     if (btnAddToKb) {
       if (validSelected.length > 0) {
@@ -369,7 +370,8 @@
 
     sourcesList.innerHTML = itemsToRender.map((s, idx) => {
       const inKB = allKB.some(k => k.sourceUrl === s.url);
-      const isChecked = selectedSourceUrls.has(s.url);
+      // By default checked if not in KB and not unselected
+      const isChecked = inKB || !unselectedSourceUrls.has(s.url);
 
       return `
       <div class="source-card ${inKB ? 'source-in-kb' : ''}">
@@ -405,9 +407,9 @@
       const url = cb.getAttribute('data-url');
       if (url) {
         if (cb.checked) {
-          selectedSourceUrls.add(url);
+          unselectedSourceUrls.delete(url);
         } else {
-          selectedSourceUrls.delete(url);
+          unselectedSourceUrls.add(url);
         }
         updateAddToKbButton();
       }
@@ -417,30 +419,27 @@
   // Add selected sources to Knowledge Base
   if (btnAddToKb) {
     btnAddToKb.addEventListener('click', () => {
-      const validSelected = Array.from(selectedSourceUrls).filter(url => !allKB.some(k => k.sourceUrl === url));
+      const validSelected = allSources.filter(s => !allKB.some(k => k.sourceUrl === s.url) && !unselectedSourceUrls.has(s.url));
       if (validSelected.length === 0) return;
 
       const existingKbUrls = new Set(allKB.map(k => k.sourceUrl));
 
-      validSelected.forEach(url => {
-        if (!existingKbUrls.has(url)) {
-          const source = allSources.find(s => s.url === url);
-          if (source) {
-            allKB.push({
-              id: source.id || Math.random().toString(36).substring(2, 9),
-              title: source.title || "Untitled Source",
-              sourceUrl: source.url,
-              domain: extractDomain(source.url),
-              category: categorizeSource(source.title, source.content || ''),
-              summary: (source.content || '').slice(0, 240) + ((source.content || '').length > 240 ? '...' : ''),
-              keyTopics: extractKeyTopics(source.title || '', source.content || '')
-            });
-            existingKbUrls.add(url);
-          }
+      validSelected.forEach(source => {
+        if (!existingKbUrls.has(source.url)) {
+          allKB.push({
+            id: source.id || Math.random().toString(36).substring(2, 9),
+            title: source.title || "Untitled Source",
+            sourceUrl: source.url,
+            domain: extractDomain(source.url),
+            category: categorizeSource(source.title, source.content || ''),
+            summary: (source.content || '').slice(0, 240) + ((source.content || '').length > 240 ? '...' : ''),
+            keyTopics: extractKeyTopics(source.title || '', source.content || '')
+          });
+          existingKbUrls.add(source.url);
         }
       });
 
-      selectedSourceUrls.clear();
+      unselectedSourceUrls.clear();
       updateAddToKbButton();
       renderKB();
       renderSources();
