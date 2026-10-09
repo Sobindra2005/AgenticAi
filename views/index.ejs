@@ -455,6 +455,13 @@
           logTrace(data.step, data.label);
         }
 
+        else if (data.type === 'thinking_chunk') {
+          thinkBlock.style.display = 'block';
+          thinkContent.textContent += data.chunk;
+          thinkContent.scrollTop = thinkContent.scrollHeight;
+          chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
         else if (data.type === 'query_planned') {
           roundBadge.textContent = `Loop ${data.iteration}/3`;
 
@@ -470,12 +477,6 @@
             <div class="sources-tray" id="tray-${agentMsgId}-${data.iteration}"></div>
           `;
           roundsContainer.appendChild(activeRoundDiv);
-
-          // Stream Thinking block if present
-          if (data.thinking) {
-            thinkBlock.style.display = 'block';
-            thinkContent.textContent += `[Planning Round ${data.iteration}]\n${data.thinking}\n\n`;
-          }
 
           logTrace('planQuery', `Planned query: "${data.query}"`);
         }
@@ -529,16 +530,12 @@
             roundDiv.appendChild(decisionDiv);
           }
 
-          if (data.thinking) {
-            thinkBlock.style.display = 'block';
-            thinkContent.textContent += `[Evaluation Round ${data.iteration}]\n${data.thinking}\n\n`;
-          }
-
           logTrace('evaluateSufficiency', `Decision: ${data.sufficient ? 'SUFFICIENT' : 'INSUFFICIENT'} - ${data.reason}`);
         }
 
         else if (data.type === 'report_chunk') {
           reportContainer.innerHTML = md.render(data.chunk);
+          chatHistory.scrollTop = chatHistory.scrollHeight;
         }
 
         else if (data.type === 'done') {

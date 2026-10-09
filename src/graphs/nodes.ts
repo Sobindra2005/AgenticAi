@@ -1,4 +1,5 @@
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
+import { RunnableConfig } from "@langchain/core/runnables";
 import { getLocalLLm, getTavily, extractThinkAndContent } from "../utils.js";
 import { ResearchState, SourceItem, KnowledgeBaseEntry } from "./state.js";
 
@@ -48,7 +49,7 @@ function extractKeyTopics(title: string, content: string): string[] {
  * 1. Planning Node:
  * Formulates the initial search query based on user task.
  */
-export const planQueryNode = async (state: ResearchState): Promise<Partial<ResearchState>> => {
+export const planQueryNode = async (state: ResearchState, config?: RunnableConfig): Promise<Partial<ResearchState>> => {
     console.log("--- [NODE: planQueryNode] Starting Planning ---");
 
     const llm = getLocalLLm(0.5);
@@ -66,7 +67,7 @@ QUERY: best deep learning specialization courses 2025
 
     const userPrompt = new HumanMessage(`User Research Task: "${state.task}"`);
 
-    const response = await llm.invoke([systemPrompt, userPrompt]);
+    const response = await llm.invoke([systemPrompt, userPrompt], config);
     const rawText = response.content.toString();
     const { thinking, content } = extractThinkAndContent(rawText);
 
@@ -168,7 +169,7 @@ export const searchTavilyNode = async (state: ResearchState): Promise<Partial<Re
  * 3. Evaluation / Sufficiency Node:
  * Analyzes gathered sources and decides whether another research loop is needed.
  */
-export const evaluateSufficiencyNode = async (state: ResearchState): Promise<Partial<ResearchState>> => {
+export const evaluateSufficiencyNode = async (state: ResearchState, config?: RunnableConfig): Promise<Partial<ResearchState>> => {
     const iteration = state.iteration || 1;
     const maxIterations = state.maxIterations || 3;
     const sources = state.sources || [];
@@ -221,7 +222,7 @@ Sources collected so far (${sources.length}):
 ${sourcesSummary}
     `.trim());
 
-    const response = await llm.invoke([systemPrompt, userPrompt]);
+    const response = await llm.invoke([systemPrompt, userPrompt], config);
     const rawText = response.content.toString();
     const { thinking, content } = extractThinkAndContent(rawText);
 
@@ -277,7 +278,7 @@ ${sourcesSummary}
  * 4. Synthesizer Node:
  * Produces the final comprehensive research report citing all gathered sources.
  */
-export const synthesizeReportNode = async (state: ResearchState): Promise<Partial<ResearchState>> => {
+export const synthesizeReportNode = async (state: ResearchState, config?: RunnableConfig): Promise<Partial<ResearchState>> => {
     console.log("--- [NODE: synthesizeReportNode] Generating Final Report ---");
 
     const llm = getLocalLLm(0.6);
@@ -312,7 +313,7 @@ ${sourcesReferenceList}
 Synthesize a complete, definitive answer with numbered citations:
     `.trim());
 
-    const response = await llm.invoke([systemPrompt, userPrompt]);
+    const response = await llm.invoke([systemPrompt, userPrompt], config);
     const rawText = response.content.toString();
     const { thinking, content } = extractThinkAndContent(rawText);
 
