@@ -13,13 +13,35 @@ export const llm = new ChatGroq({
 })
 
 
-export const getLocalLLm = () => {
+export const getLocalLLm = (temperature = 0.6) => {
     return new ChatOllama({
         model: "deepseek-r1:1.5b",
-        baseUrl: "http://localhost:11434", // Default Ollama local endpoint,
-        temperature: 1,
+        baseUrl: "http://localhost:11434", // Default Ollama local endpoint
+        temperature,
     });
+};
 
+/**
+ * Extracts <think>...</think> reasoning blocks from DeepSeek-R1 output
+ * and separates them from the actual content.
+ */
+export function extractThinkAndContent(text: string): { thinking: string; content: string } {
+    if (!text) return { thinking: "", content: "" };
+    const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/i);
+    if (thinkMatch) {
+        const thinking = thinkMatch[1].trim();
+        const content = text.replace(/<think>[\s\S]*?<\/think>/i, "").trim();
+        return { thinking, content };
+    }
+    // If <think> tag is unclosed (still streaming or cut off)
+    if (text.includes("<think>")) {
+        const parts = text.split("<think>");
+        return {
+            thinking: parts[1]?.trim() ?? "",
+            content: parts[0]?.trim() ?? ""
+        };
+    }
+    return { thinking: "", content: text.trim() };
 }
 
 

@@ -1,128 +1,179 @@
-<style>
-  body {
-    overflow: hidden; /* Prevent full page from scrolling */
-  }
-  .shell {
-    width: 1400px !important;
-    max-width: 95vw !important;
-    margin: 0 auto !important;
-    padding: 32px 0 16px 0 !important;
-    height: 100vh !important;
-    display: flex !important;
-    flex-direction: column !important;
-  }
-  .workspace {
-    grid-template-columns: 2.5fr 1fr !important;
-    flex: 1 !important;
-    min-height: 0 !important;
-    height: auto !important;
-  }
-  .chat-panel, .output-panel {
-    height: 100% !important;
-    min-height: 0 !important;
-  }
-  
-  /* Force text to wrap to the next line instead of overflowing horizontally */
-  .user-message, pre.output {
-    white-space: pre-wrap !important;
-  }
-  .chat-history div {
-    word-break: break-word !important;
-    overflow-wrap: break-word !important;
-  }
-  /* Basic markdown styling for assistant messages */
-  .assistant-message p { margin: 0 0 10px 0; }
-  .assistant-message p:last-child { margin-bottom: 0; }
-  .assistant-message pre { background: #000; padding: 10px; border-radius: 4px; overflow-x: auto; margin: 10px 0; }
-  .assistant-message code { font-family: 'DM Mono', monospace; background: #000; padding: 2px 4px; border-radius: 3px; font-size: 0.9em; }
-  .think-content {
-    max-height: 3.5em; /* Approximately 3 lines */
-    overflow-y: auto;
-  }
-</style>
 <section class="workspace">
-  <div class="panel chat-panel" style="display: flex; flex-direction: column; height: 100%; max-height: 100%; padding: 20px;">
-    <div class="panel-heading">
-      <span class="step">01</span>
-      <div>
-        <h2>Agent Chat</h2>
-        <p>Talk to your custom workflow.</p>
-      </div>
+  <!-- Left Panel: Chat & Research Execution Feed -->
+  <section class="panel chat-panel">
+
+    <!-- header ui -->
+    
+
+    <div id="chat-history" class="chat-history">
+
     </div>
 
-    <div id="chat-history" class="chat-history" style="flex: 1; overflow-y: auto; margin: 16px 0; display: flex; flex-direction: column; gap: 12px; padding-right: 8px; min-height: 0; max-height: 100%; scroll-behavior: smooth;">
-      <!-- Chat messages will appear here -->
-    </div>
-
-    <form id="chat-form" style="display: flex; gap: 10px; align-items: flex-end;">
-      <textarea class="text-input" id="chat-input" placeholder="Type your message... (Press Enter to send)" style="flex: 1; min-height: 50px; height: 50px; resize: none;"></textarea>
-      <button class="run-button" type="submit" style="width: auto; margin: 0; padding: 12px 24px;">Send <span>↗</span></button>
+    <form id="chat-form" class="chat-input-bar">
+      <textarea id="chat-input" class="text-input"
+        placeholder="Ask to research courses, syllabus, or technical topics... (Press Enter to Send)"
+        rows="1"></textarea>
+      <button id="btn-submit" type="submit" class="btn-send">
+        <span>Research</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12" />
+          <polyline points="12 5 19 12 12 19" />
+        </svg>
+      </button>
     </form>
-  </div>
+  </section>
 
-  <section class="panel output-panel" style="display: flex; flex-direction: column; height: 100%; max-height: 100%; padding: 20px;">
-    <div class="panel-heading">
-      <span class="step">02</span>
-      <div>
-        <h2>Debug Info</h2>
-        <p>Raw workflow response preserved here.</p>
-      </div>
+  <!-- Right Panel: Tabbed Research Vault & Telemetry -->
+  <section class="panel vault-panel">
+    <div class="vault-tabs">
+      <button class="vault-tab-btn active" data-tab="sources">
+        <span>🌐 Sources Vault</span>
+        <span id="tab-sources-count" class="tab-badge">0</span>
+      </button>
+      <button class="vault-tab-btn" data-tab="kb">
+        <span>📚 Knowledge Base</span>
+        <span id="tab-kb-count" class="tab-badge">0</span>
+      </button>
+      <button class="vault-tab-btn" data-tab="trace">
+        <span>⚡ Graph Trace</span>
+        <span id="tab-trace-count" class="tab-badge">0</span>
+      </button>
     </div>
 
-    <div id="debug-content" style="flex: 1; overflow-y: auto; min-height: 0; max-height: 100%; padding-right: 8px;">
-      <div class="empty-output"><span class="empty-mark">⌁</span><strong>No debug data</strong><p>Run a message to see the payload.</p></div>
+    <div class="vault-body">
+      <!-- TAB 1: Sources Vault -->
+      <div id="tab-content-sources" class="vault-tab-content active">
+        <div class="vault-toolbar">
+          <input type="text" id="sources-search" class="search-filter"
+            placeholder="Filter sources by title/domain..." />
+          <span id="sources-stat" style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);">0
+            unique sources</span>
+        </div>
+        <div id="sources-list" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
+          <div class="vault-empty">
+            <span class="vault-empty-icon">🌐</span>
+            <strong>No sources collected yet</strong>
+            <p style="font-size: 12px;">Run a research query to gather Tavily sources.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: Knowledge Base -->
+      <div id="tab-content-kb" class="vault-tab-content">
+        <div class="vault-toolbar">
+          <div style="display: flex; gap: 6px;">
+            <button id="btn-copy-kb" class="btn-secondary" title="Copy Knowledge Base as JSON">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              Copy JSON
+            </button>
+            <button id="btn-download-kb" class="btn-secondary" title="Download as Markdown">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Export MD
+            </button>
+          </div>
+          <span id="kb-stat" style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);">0 items
+            ready</span>
+        </div>
+        <div id="kb-list" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
+          <div class="vault-empty">
+            <span class="vault-empty-icon">📚</span>
+            <strong>Knowledge Base Empty</strong>
+            <p style="font-size: 12px;">Extracted course curricula & guides will appear here.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: Graph Execution Trace -->
+      <div id="tab-content-trace" class="vault-tab-content">
+        <div class="vault-toolbar">
+          <span style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);">LangGraph Execution
+            Telemetry</span>
+          <button id="btn-clear-trace" class="btn-secondary" style="font-size: 11px; padding: 3px 8px;">Clear</button>
+        </div>
+        <div id="trace-list" style="display: flex; flex-direction: column; gap: 2px; overflow-y: auto; padding: 6px 0;">
+          <div class="vault-empty">
+            <span class="vault-empty-icon">⚡</span>
+            <strong>No trace events recorded</strong>
+            <p style="font-size: 12px;">Node telemetry will log in real time as the graph executes.</p>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 </section>
 
-<footer>
-  <span>Custom logic</span>
-  <code>src/workflow.ts</code>
-  <span class="footer-note">Change <code>runWorkflow()</code> to practice</span>
-</footer>
-
 <script>
+  // Setup markdown renderer
+  const md = window.markdownit({
+    html: true,
+    linkify: true,
+    breaks: true
+  });
+
+  // State management
+  let allSources = [];
+  let allKB = [];
+  let traceSteps = [];
+  let activeEventSource = null;
+
+  // DOM Elements
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
   const chatHistory = document.getElementById('chat-history');
-  const debugContent = document.getElementById('debug-content');
+  const btnSubmit = document.getElementById('btn-submit');
+  const btnClearChat = document.getElementById('btn-clear-chat');
 
-  const md = window.markdownit({ html: true, breaks: true });
+  // Vault Elements
+  const sourcesList = document.getElementById('sources-list');
+  const kbList = document.getElementById('kb-list');
+  const traceList = document.getElementById('trace-list');
+  const tabSourcesCount = document.getElementById('tab-sources-count');
+  const tabKbCount = document.getElementById('tab-kb-count');
+  const tabTraceCount = document.getElementById('tab-trace-count');
+  const sourcesStat = document.getElementById('sources-stat');
+  const kbStat = document.getElementById('kb-stat');
+  const sourcesSearch = document.getElementById('sources-search');
+  const btnCopyKb = document.getElementById('btn-copy-kb');
+  const btnDownloadKb = document.getElementById('btn-download-kb');
+  const btnClearTrace = document.getElementById('btn-clear-trace');
 
-  function escapeHtml(unsafe) {
-    return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-                         .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-  }
+  // Setup Prompt Chips
+  document.querySelectorAll('.chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      chatInput.value = btn.getAttribute('data-prompt');
+      chatInput.focus();
+      chatForm.dispatchEvent(new Event('submit'));
+    });
+  });
 
-  function formatAIResponse(text) {
-    let htmlContent = "";
-    
-    // Find <think> boundaries
-    const thinkStart = text.indexOf('<think>');
-    const thinkEnd = text.indexOf('</think>');
-    
-    if (thinkStart !== -1) {
-      if (thinkEnd !== -1) {
-        // The thinking is complete
-        const thinkText = text.substring(thinkStart + 7, thinkEnd).trim();
-        const remainingText = text.substring(thinkEnd + 8).trim();
-        
-        htmlContent += `<div class="think-block"><details><summary>Thinking Process</summary><div class="think-content">${escapeHtml(thinkText)}</div></details></div>`;
-        htmlContent += md.render(remainingText);
-      } else {
-        // Still currently thinking
-        const thinkText = text.substring(thinkStart + 7).trim();
-        htmlContent += `<div class="think-block"><details open><summary>Thinking Process</summary><div class="think-content">${escapeHtml(thinkText)}</div></details></div>`;
-      }
-    } else {
-      // Normal response without any <think> tags
-      htmlContent = md.render(text);
-    }
-    
-    return htmlContent;
-  }
+  // Tab Switching
+  document.querySelectorAll('.vault-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.vault-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.vault-tab-content').forEach(c => c.classList.remove('active'));
 
-  // Handle Enter to submit (Shift+Enter for new line)
+      btn.classList.add('active');
+      const tabId = 'tab-content-' + btn.getAttribute('data-tab');
+      const content = document.getElementById(tabId);
+      if (content) content.classList.add('active');
+    });
+  });
+
+  // Auto-resize textarea
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+  });
+
+  // Enter to send
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -130,127 +181,401 @@
     }
   });
 
+
+  btnClearTrace.addEventListener('click', () => {
+    traceSteps = [];
+    renderTrace();
+  });
+
+  // Filter sources
+  sourcesSearch.addEventListener('input', (e) => {
+    const term = e.target.value.toLowerCase();
+    const filtered = allSources.filter(s =>
+      s.title.toLowerCase().includes(term) || s.url.toLowerCase().includes(term) || s.content.toLowerCase().includes(term)
+    );
+    renderSources(filtered);
+  });
+
+  // Copy KB as JSON
+  btnCopyKb.addEventListener('click', () => {
+    if (allKB.length === 0) {
+      alert("Knowledge Base is currently empty.");
+      return;
+    }
+    navigator.clipboard.writeText(JSON.stringify(allKB, null, 2)).then(() => {
+      btnCopyKb.textContent = "✓ Copied!";
+      setTimeout(() => {
+        btnCopyKb.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy JSON`;
+      }, 2000);
+    });
+  });
+
+  // Download KB as Markdown
+  btnDownloadKb.addEventListener('click', () => {
+    if (allKB.length === 0) {
+      alert("Knowledge Base is currently empty.");
+      return;
+    }
+    let mdText = `# Knowledge Base Export\nGenerated: ${new Date().toLocaleString()}\n\n`;
+    allKB.forEach((item, idx) => {
+      mdText += `## ${idx + 1}. [${item.title}](${item.sourceUrl})\n`;
+      mdText += `- **Category:** ${item.category}\n`;
+      mdText += `- **Domain:** ${item.domain}\n`;
+      mdText += `- **Key Topics:** ${item.keyTopics.join(", ")}\n\n`;
+      mdText += `> ${item.summary}\n\n---\n\n`;
+    });
+    const blob = new Blob([mdText], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `knowledge-base-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // Helper to escape HTML
+  function escapeHtml(str) {
+    return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  }
+
+  function extractDomain(urlStr) {
+    try {
+      const u = new URL(urlStr);
+      return u.hostname.replace(/^www\./, '');
+    } catch {
+      return 'web';
+    }
+  }
+
+  // Add Step to Trace
+  function logTrace(node, desc, time = new Date()) {
+    const step = {
+      id: Date.now() + Math.random(),
+      node,
+      desc,
+      time: time.toLocaleTimeString()
+    };
+    traceSteps.unshift(step);
+    renderTrace();
+  }
+
+  function renderTrace() {
+    tabTraceCount.textContent = traceSteps.length;
+    if (traceSteps.length === 0) {
+      traceList.innerHTML = `
+        <div class="vault-empty">
+          <span class="vault-empty-icon">⚡</span>
+          <strong>No trace events recorded</strong>
+          <p style="font-size: 12px;">Node telemetry will log in real time as the graph executes.</p>
+        </div>
+      `;
+      return;
+    }
+
+    traceList.innerHTML = traceSteps.map(step => {
+      let iconClass = 'trace-plan';
+      let iconChar = '💭';
+      if (step.node === 'searchTavily') { iconClass = 'trace-search'; iconChar = '🔍'; }
+      else if (step.node === 'evaluateSufficiency') { iconClass = 'trace-eval'; iconChar = '🧠'; }
+      else if (step.node === 'synthesizeReport') { iconClass = 'trace-synth'; iconChar = '📝'; }
+
+      return `
+        <div class="trace-step">
+          <div class="trace-icon ${iconClass}">${iconChar}</div>
+          <div class="trace-info">
+            <div class="trace-info-header">
+              <span class="trace-node-name">${step.node}</span>
+              <span class="trace-time">${step.time}</span>
+            </div>
+            <div class="trace-desc">${escapeHtml(step.desc)}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Render Sources Vault
+  function renderSources(itemsToRender = allSources) {
+    tabSourcesCount.textContent = allSources.length;
+    sourcesStat.textContent = `${allSources.length} unique sources`;
+
+    if (itemsToRender.length === 0) {
+      sourcesList.innerHTML = `
+        <div class="vault-empty">
+          <span class="vault-empty-icon">🌐</span>
+          <strong>No sources collected</strong>
+          <p style="font-size: 12px;">Run a research query to gather Tavily sources.</p>
+        </div>
+      `;
+      return;
+    }
+
+    sourcesList.innerHTML = itemsToRender.map((s, idx) => `
+      <div class="source-card">
+        <div class="source-card-header">
+          <span class="source-domain">${extractDomain(s.url)}</span>
+          <div style="display: flex; gap: 5px; align-items: center;">
+            <span class="badge" style="font-size: 10px;">Round ${s.iteration || 1}</span>
+            ${s.isNew ? '<span class="pill-new">NEW</span>' : ''}
+          </div>
+        </div>
+        <a class="source-card-title" href="${s.url}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title)}</a>
+        <div class="source-snippet" id="snippet-${idx}">${escapeHtml(s.content)}</div>
+        <button class="btn-expand-snippet" onclick="toggleSnippet(${idx})">Toggle Excerpt</button>
+      </div>
+    `).join('');
+  }
+
+  window.toggleSnippet = function (idx) {
+    const el = document.getElementById('snippet-' + idx);
+    if (el) el.classList.toggle('expanded');
+  };
+
+  // Render Knowledge Base
+  function renderKB() {
+    tabKbCount.textContent = allKB.length;
+    kbStat.textContent = `${allKB.length} items ready`;
+
+    if (allKB.length === 0) {
+      kbList.innerHTML = `
+        <div class="vault-empty">
+          <span class="vault-empty-icon">📚</span>
+          <strong>Knowledge Base Empty</strong>
+          <p style="font-size: 12px;">Extracted course curricula & guides will appear here.</p>
+        </div>
+      `;
+      return;
+    }
+
+    kbList.innerHTML = allKB.map(item => {
+      const catClass = 'category-' + (item.category || 'resource').toLowerCase();
+      return `
+        <div class="kb-card">
+          <div class="kb-card-header">
+            <span class="kb-category ${catClass}">${item.category}</span>
+            <span style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);">${item.domain}</span>
+          </div>
+          <a class="kb-card-title" href="${item.sourceUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+          <p class="kb-card-summary">${escapeHtml(item.summary)}</p>
+          <div class="kb-tags">
+            ${item.keyTopics.map(t => `<span class="kb-tag">${escapeHtml(t)}</span>`).join('')}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Chat Submission Handler
   chatForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    const message = chatInput.value.trim();
-    if (!message) return;
+    const query = chatInput.value.trim();
+    if (!query) return;
 
-    // Add user message to UI
-    appendMessage('user', message);
+    // Reset input
     chatInput.value = '';
-    
-    // Disable inputs while thinking/streaming to prevent double submissions
+    chatInput.style.height = '48px';
     chatInput.disabled = true;
-    chatForm.querySelector('button').disabled = true;
+    btnSubmit.disabled = true;
 
-    // Create the AI response bubble with a thinking state
-    const msgId = appendMessage('assistant', '');
-    const msgDiv = document.getElementById(msgId);
-    msgDiv.innerHTML = '<span style="color: var(--muted); font-style: italic;">Thinking...</span>';
-    
-    let accumulatedText = "";
-    const source = new EventSource('/api/stream?input=' + encodeURIComponent(message));
-    
-    source.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      
-      if (data.error) {
-        msgDiv.textContent = 'Error: ' + data.error;
-        msgDiv.style.backgroundColor = '#281613';
-        msgDiv.style.color = '#ffc1b6';
-        msgDiv.style.borderLeft = '3px solid var(--orange)';
-        cleanup();
-        return;
-      }
-      
-      if (data.done) {
-        // Stream complete - Update debug panel with raw JSON
-        debugContent.innerHTML = `
-          <div class="output-meta"><span>WORKFLOW RESPONSE</span><span>JSON</span></div>
-          <pre class="output"><code>${escapeHtml(JSON.stringify(data, null, 2))}</code></pre>
-        `;
-        cleanup();
-        return;
-      }
-      
-      // Accumulate tokens
-      accumulatedText += data.chunk;
-      
-      // Update DOM with beautifully parsed <think> blocks
-      msgDiv.innerHTML = formatAIResponse(accumulatedText);
-      chatHistory.scrollTop = chatHistory.scrollHeight;
-      
-      const thinkContent = msgDiv.querySelector('.think-content');
-      if (thinkContent) {
-        thinkContent.scrollTop = thinkContent.scrollHeight;
+    // Append User Message
+    const userMsg = document.createElement('div');
+    userMsg.className = 'user-message';
+    userMsg.textContent = query;
+    chatHistory.appendChild(userMsg);
+
+    // Create Agent Message Container
+    const agentMsgId = 'agent-' + Date.now();
+    const agentMsg = document.createElement('div');
+    agentMsg.className = 'assistant-message';
+    agentMsg.id = agentMsgId;
+
+    agentMsg.innerHTML = `
+      <div class="research-stepper">
+        <div class="stepper-header">
+          <div class="stepper-status">
+            <div class="spinner" id="spinner-${agentMsgId}"></div>
+            <span id="status-text-${agentMsgId}">Starting LangGraph workflow...</span>
+          </div>
+          <span class="badge badge-accent" id="round-badge-${agentMsgId}">Loop 1/3</span>
+        </div>
+
+        <div class="stepper-rounds" id="rounds-${agentMsgId}">
+          <!-- Iteration rounds will append here -->
+        </div>
+
+        <div class="think-block" id="think-${agentMsgId}" style="display: none;">
+          <details open>
+            <summary>Thinking & Reasoning Process</summary>
+            <div class="think-content" id="think-content-${agentMsgId}"></div>
+          </details>
+        </div>
+      </div>
+
+      <div class="report-content" id="report-${agentMsgId}">
+        <p style="color: var(--muted); font-style: italic;">Researching live web sources...</p>
+      </div>
+    `;
+
+    chatHistory.appendChild(agentMsg);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+
+    const statusText = document.getElementById(`status-text-${agentMsgId}`);
+    const roundBadge = document.getElementById(`round-badge-${agentMsgId}`);
+    const roundsContainer = document.getElementById(`rounds-${agentMsgId}`);
+    const thinkBlock = document.getElementById(`think-${agentMsgId}`);
+    const thinkContent = document.getElementById(`think-content-${agentMsgId}`);
+    const reportContainer = document.getElementById(`report-${agentMsgId}`);
+    const spinner = document.getElementById(`spinner-${agentMsgId}`);
+
+    let activeRoundDiv = null;
+    let currentRoundNum = 1;
+
+    // Start SSE Stream
+    if (activeEventSource) activeEventSource.close();
+    activeEventSource = new EventSource('/api/stream?input=' + encodeURIComponent(query));
+
+    activeEventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'error') {
+          statusText.textContent = "Error: " + data.error;
+          statusText.style.color = "var(--orange)";
+          spinner.style.display = "none";
+          cleanup();
+          return;
+        }
+
+        if (data.type === 'step_start') {
+          statusText.textContent = data.label;
+          if (data.iteration) {
+            currentRoundNum = data.iteration;
+            roundBadge.textContent = `Loop ${currentRoundNum}/3`;
+          }
+          logTrace(data.step, data.label);
+        }
+
+        else if (data.type === 'query_planned') {
+          roundBadge.textContent = `Loop ${data.iteration}/3`;
+
+          // Append Round Node
+          activeRoundDiv = document.createElement('div');
+          activeRoundDiv.className = 'round-node';
+          activeRoundDiv.id = `round-${agentMsgId}-${data.iteration}`;
+          activeRoundDiv.innerHTML = `
+            <div class="round-badge-row">
+              <span class="badge badge-accent">Round ${data.iteration} Search</span>
+              <span class="search-pill">🔍 ${escapeHtml(data.query)}</span>
+            </div>
+            <div class="sources-tray" id="tray-${agentMsgId}-${data.iteration}"></div>
+          `;
+          roundsContainer.appendChild(activeRoundDiv);
+
+          // Stream Thinking block if present
+          if (data.thinking) {
+            thinkBlock.style.display = 'block';
+            thinkContent.textContent += `[Planning Round ${data.iteration}]\n${data.thinking}\n\n`;
+          }
+
+          logTrace('planQuery', `Planned query: "${data.query}"`);
+        }
+
+        else if (data.type === 'sources_updated') {
+          // Update global sources & KB
+          const existingUrls = new Set(allSources.map(s => s.url));
+          (data.newSources || []).forEach(ns => {
+            if (!existingUrls.has(ns.url)) {
+              allSources.push(ns);
+            }
+          });
+          renderSources();
+
+          if (Array.isArray(data.kbEntries)) {
+            const existingKbUrls = new Set(allKB.map(k => k.sourceUrl));
+            data.kbEntries.forEach(ke => {
+              if (!existingKbUrls.has(ke.sourceUrl)) {
+                allKB.push(ke);
+              }
+            });
+            renderKB();
+          }
+
+          // Populate mini chips in chat
+          const tray = document.getElementById(`tray-${agentMsgId}-${data.iteration}`);
+          if (tray) {
+            tray.innerHTML = (data.newSources || []).map(s => `
+              <a class="source-chip" href="${s.url}" target="_blank" rel="noopener noreferrer">
+                <span>${extractDomain(s.url)}</span>
+                <span class="pill-new">+NEW</span>
+              </a>
+            `).join('');
+          }
+
+          logTrace('searchTavily', `Found ${data.newCount} new sources (${data.totalCount} total accumulated)`);
+        }
+
+        else if (data.type === 'eval_decision') {
+          const roundDiv = document.getElementById(`round-${agentMsgId}-${data.iteration}`) || activeRoundDiv;
+          if (roundDiv) {
+            const decisionDiv = document.createElement('div');
+            decisionDiv.className = data.sufficient ? 'decision-box decision-sufficient' : 'decision-box decision-insufficient';
+            decisionDiv.innerHTML = `
+              <div class="decision-header">
+                ${data.sufficient ? '✓ Research Concluded' : '⚡ Need Deeper Search'}
+              </div>
+              <div>${escapeHtml(data.reason)}</div>
+              ${data.nextQuery ? `<div style="font-family: 'DM Mono', monospace; font-size: 11px; margin-top: 4px; color: var(--ink);">Next targeted query: "${escapeHtml(data.nextQuery)}"</div>` : ''}
+            `;
+            roundDiv.appendChild(decisionDiv);
+          }
+
+          if (data.thinking) {
+            thinkBlock.style.display = 'block';
+            thinkContent.textContent += `[Evaluation Round ${data.iteration}]\n${data.thinking}\n\n`;
+          }
+
+          logTrace('evaluateSufficiency', `Decision: ${data.sufficient ? 'SUFFICIENT' : 'INSUFFICIENT'} - ${data.reason}`);
+        }
+
+        else if (data.type === 'report_chunk') {
+          reportContainer.innerHTML = md.render(data.chunk);
+        }
+
+        else if (data.type === 'done') {
+          spinner.style.display = 'none';
+          statusText.textContent = `Completed in ${data.iterations} round(s) • ${data.sources.length} sources`;
+          statusText.style.color = 'var(--accent)';
+
+          if (data.finalReport) {
+            reportContainer.innerHTML = md.render(data.finalReport);
+          }
+
+          logTrace('synthesizeReport', `Final synthesis complete (${data.sources.length} sources, ${data.knowledgeBase.length} KB cards)`);
+          cleanup();
+        }
+
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+      } catch (err) {
+        console.error("Stream parse error:", err, event.data);
       }
     };
-    
-    source.onerror = () => {
-      if (accumulatedText === "") {
-        msgDiv.textContent = 'Error: Failed to connect to stream.';
-        msgDiv.style.backgroundColor = '#281613';
-        msgDiv.style.color = '#ffc1b6';
-        msgDiv.style.borderLeft = '3px solid var(--orange)';
+
+    activeEventSource.onerror = () => {
+      spinner.style.display = 'none';
+      if (!statusText.textContent.includes('Completed')) {
+        statusText.textContent = "Stream connection completed or closed.";
       }
       cleanup();
     };
 
     function cleanup() {
-      source.close();
+      if (activeEventSource) {
+        activeEventSource.close();
+        activeEventSource = null;
+      }
       chatInput.disabled = false;
-      chatForm.querySelector('button').disabled = false;
+      btnSubmit.disabled = false;
       chatInput.focus();
     }
   });
-
-  function appendMessage(role, text) {
-    const msgDiv = document.createElement('div');
-    const id = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-    msgDiv.id = id;
-    
-    // Basic styling for chat bubbles
-    msgDiv.style.padding = '12px 16px';
-    msgDiv.style.borderRadius = '8px';
-    msgDiv.style.maxWidth = '85%';
-    msgDiv.style.lineHeight = '1.5';
-    msgDiv.style.fontSize = '14px';
-    msgDiv.style.wordBreak = 'break-word';
-    
-    if (role === 'user') {
-      msgDiv.className = 'user-message';
-      msgDiv.style.alignSelf = 'flex-end';
-      msgDiv.style.backgroundColor = 'var(--accent)';
-      msgDiv.style.color = '#0d100f';
-    } else if (role === 'assistant') {
-      msgDiv.className = 'assistant-message';
-      msgDiv.style.alignSelf = 'flex-start';
-      msgDiv.style.backgroundColor = 'var(--line)';
-      msgDiv.style.color = 'var(--ink)';
-    } else if (role === 'error') {
-      msgDiv.style.alignSelf = 'flex-start';
-      msgDiv.style.backgroundColor = '#281613';
-      msgDiv.style.borderLeft = '3px solid var(--orange)';
-      msgDiv.style.color = '#ffc1b6';
-    } else if (role === 'system') {
-      msgDiv.style.alignSelf = 'flex-start';
-      msgDiv.style.backgroundColor = 'transparent';
-      msgDiv.style.color = 'var(--muted)';
-      msgDiv.style.fontStyle = 'italic';
-    }
-    
-    msgDiv.textContent = text;
-    chatHistory.appendChild(msgDiv);
-    chatHistory.scrollTop = chatHistory.scrollHeight;
-    return id;
-  }
-
-  function escapeHtml(unsafe) {
-    return unsafe
-         .replace(/&/g, "&amp;")
-         .replace(/</g, "&lt;")
-         .replace(/>/g, "&gt;")
-         .replace(/"/g, "&quot;")
-         .replace(/'/g, "&#039;");
-  }
 </script>

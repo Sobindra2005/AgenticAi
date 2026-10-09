@@ -3,7 +3,7 @@ import express from "express";
 import expressLayouts from "express-ejs-layouts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runWorkflow, runWorkflowStream } from "./workflow.js";
+import { runWorkflow, streamResearchWorkflow } from "./workflow.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const currentFile = fileURLToPath(import.meta.url);
@@ -20,7 +20,7 @@ app.use(express.static(path.join(projectRoot, "public")));
 
 app.get("/", (_request, response) => {
   response.render("index", {
-    title: "Agentic AI Playground",
+    title: "Agentic AI - Iterative Research Studio",
     input: "",
     result: null,
     error: null,
@@ -32,14 +32,13 @@ app.post("/run", async (request, response) => {
 
   try {
     const result = await runWorkflow(input);
-
-    response.render("index", { title: "Agentic AI Playground", input, result, error: null });
+    response.render("index", { title: "Agentic AI - Iterative Research Studio", input, result, error: null });
   } catch (error) {
     response.status(500).render("index", {
-      title: "Agentic AI Playground",
+      title: "Agentic AI - Iterative Research Studio",
       input,
       result: null,
-      error: error instanceof Error ? error.message : "Your custom workflow failed.",
+      error: error instanceof Error ? error.message : "Workflow execution failed.",
     });
   }
 });
@@ -59,50 +58,14 @@ app.get("/api/stream", async (request, response) => {
   response.setHeader('Connection', 'keep-alive');
 
   try {
-    const stream = await runWorkflowStream(input);
-    let fullOutput = "";
-    let isThinking = false;
-
-    for await (const chunk of stream) {
-      // @ts-ignore - Handle possible reasoning_content from Ollama or similar models
-      const reasoning = chunk.additional_kwargs?.reasoning_content ? chunk.additional_kwargs.reasoning_content.toString() : "";
-      const content = chunk.content ? chunk.content.toString() : "";
-      
-      let chunkTextToSend = "";
-
-      if (reasoning) {
-        if (!isThinking) {
-          chunkTextToSend += "<think>\n";
-          isThinking = true;
-        }
-        chunkTextToSend += reasoning;
-      }
-
-      if (content) {
-        if (isThinking) {
-          chunkTextToSend += "\n</think>\n";
-          isThinking = false;
-        }
-        chunkTextToSend += content;
-      }
-
-      if (chunkTextToSend) {
-        fullOutput += chunkTextToSend;
-        response.write(`data: ${JSON.stringify({ chunk: chunkTextToSend })}\n\n`);
-      }
+    const generator = streamResearchWorkflow(input, 3);
+    for await (const event of generator) {
+      response.write(`data: ${JSON.stringify(event)}\n\n`);
     }
-
-    if (isThinking) {
-      const closing = "\n</think>\n";
-      fullOutput += closing;
-      response.write(`data: ${JSON.stringify({ chunk: closing })}\n\n`);
-    }
-
-    response.write(`data: ${JSON.stringify({ done: true, fullOutput })}\n\n`);
     response.end();
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    response.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
+    response.write(`data: ${JSON.stringify({ type: "error", error: errorMessage })}\n\n`);
     response.end();
   }
 });
