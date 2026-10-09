@@ -81,7 +81,7 @@ QUERY: best deep learning specialization courses 2025
         const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
         query = lines[0] || state.task;
     }
-    
+
     // Clean surrounding quotes and prefixes
     query = query.replace(/^["']|["']$/g, "").replace(/^QUERY:\s*/i, "").trim();
 
@@ -186,7 +186,7 @@ export const evaluateSufficiencyNode = async (state: ResearchState, config?: Run
 
     const llm = getLocalLLm(0.4);
 
-    const sourcesSummary = sources.slice(0, 6).map((s, idx) => 
+    const sourcesSummary = sources.slice(0, 6).map((s, idx) =>
         `[${idx + 1}] "${s.title}" (${s.url})\nSummary: ${s.content.slice(0, 160)}...`
     ).join("\n\n");
 
@@ -270,7 +270,7 @@ export const synthesizeReportNode = async (state: ResearchState, config?: Runnab
     const llm = getLocalLLm(0.6);
     const sources = state.sources || [];
 
-    const sourcesReferenceList = sources.map((s, idx) => 
+    const sourcesReferenceList = sources.map((s, idx) =>
         `[${idx + 1}] Title: ${s.title}\nURL: ${s.url}\nExcerpt: ${s.content.slice(0, 300)}`
     ).join("\n\n");
 

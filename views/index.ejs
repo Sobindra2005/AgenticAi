@@ -289,14 +289,14 @@
       const res = await fetch('/api/threads');
       if (res.ok) {
         const data = await res.json();
-        cachedThreadsList = data.threads || [];
+        cachedThreadsList = Array.isArray(data?.threads) ? data.threads : [];
         updateNavThreadsCount(cachedThreadsList.length);
         return cachedThreadsList;
       }
     } catch (e) {
       console.warn("Failed to fetch threads from DB, using cache:", e);
     }
-    return cachedThreadsList;
+    return Array.isArray(cachedThreadsList) ? cachedThreadsList : [];
   }
 
   function updateNavThreadsCount(count) {
@@ -335,7 +335,10 @@
   }
 
   function formatRelativeTime(timestamp) {
-    const diffMs = Date.now() - timestamp;
+    if (!timestamp) return 'Just now';
+    const timeVal = typeof timestamp === 'number' ? timestamp : new Date(timestamp).getTime();
+    if (isNaN(timeVal)) return 'Just now';
+    const diffMs = Date.now() - timeVal;
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMins / 60);
     const diffDays = Math.floor(diffHours / 24);
@@ -546,22 +549,22 @@
 
   // Create a New Thread
   async function createNewThread(initialTitle = 'New Research Thread') {
-    const threadId = 'th-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
     try {
       const res = await fetch('/api/threads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: threadId, title: initialTitle }),
+        body: JSON.stringify({ title: initialTitle }),
       });
       if (res.ok) {
+        const data = await res.json();
+        const threadId = data.thread.id;
         await showWorkspaceView(threadId);
         return threadId;
       }
     } catch (e) {
       console.error("Failed to create thread via API:", e);
     }
-    await showWorkspaceView(threadId);
-    return threadId;
+    await showThreadsView();
   }
 
   // Delete a Thread
@@ -582,30 +585,44 @@
   }
 
   // Update current thread stats in threads index
-  function updateCurrentThreadMetadata(lastText = '') {
+  async function updateCurrentThreadMetadata(lastText = '') {
     if (!currentThreadId) return;
-    const threads = getStoredThreads();
+    const threads = await getStoredThreads();
+    if (!Array.isArray(threads)) return;
     const thread = threads.find(t => t.id === currentThreadId);
     if (!thread) return;
 
-    thread.updatedAt = Date.now();
-    thread.messageCount = chatHistory.querySelectorAll('.user-message').length;
-    thread.sourceCount = allSources.length;
-    thread.kbCount = allKB.length;
+    const updates = {
+      updatedAt: Date.now(),
+      messageCount: chatHistory.querySelectorAll('.user-message').length,
+      sourceCount: allSources.length,
+      kbCount: allKB.length,
+    };
+
     if (lastText) {
-      thread.lastSnippet = lastText.slice(0, 140);
+      updates.lastSnippet = lastText.slice(0, 140);
     }
-    // If title is default, use first user query as title
+
     if (thread.title === 'New Research Thread' || thread.title === 'Untitled Thread') {
       const firstUserMsg = chatHistory.querySelector('.user-message');
       if (firstUserMsg && firstUserMsg.textContent) {
-        thread.title = firstUserMsg.textContent.slice(0, 48);
-        if (currentThreadTitle) currentThreadTitle.textContent = thread.title;
-        if (navWorkspaceLabel) navWorkspaceLabel.textContent = thread.title.length > 18 ? thread.title.slice(0, 18) + '...' : thread.title;
+        updates.title = firstUserMsg.textContent.slice(0, 48);
+        if (currentThreadTitle) currentThreadTitle.textContent = updates.title;
+        if (navWorkspaceLabel) navWorkspaceLabel.textContent = updates.title.length > 18 ? updates.title.slice(0, 18) + '...' : updates.title;
       }
     }
 
-    saveStoredThreads(threads);
+    Object.assign(thread, updates);
+
+    try {
+      await fetch(`/api/threads/${encodeURIComponent(currentThreadId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    } catch (e) {
+      console.warn("Failed to sync thread metadata to DB:", e);
+    }
   }
 
   // ==========================================
@@ -614,15 +631,15 @@
 
   // Nav Tabs
   navBtnThreads.addEventListener('click', showThreadsView);
-  navBtnWorkspace.addEventListener('click', () => {
+  navBtnWorkspace.addEventListener('click', async () => {
     if (currentThreadId) {
-      showWorkspaceView(currentThreadId);
+      await showWorkspaceView(currentThreadId);
     } else {
-      const threads = getStoredThreads();
+      const threads = await getStoredThreads();
       if (threads.length > 0) {
-        showWorkspaceView(threads[0].id);
+        await showWorkspaceView(threads[0].id);
       } else {
-        createNewThread();
+        await createNewThread();
       }
     }
   });
@@ -985,13 +1002,13 @@
   // CHAT EXECUTION & STREAMING HANDLER
   // ==========================================
 
-  chatForm.addEventListener('submit', (e) => {
+  chatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const query = chatInput.value.trim();
     if (!query) return;
 
     if (!currentThreadId) {
-      currentThreadId = createNewThread(query.slice(0, 48));
+      currentThreadId = await createNewThread(query.slice(0, 48));
     }
 
     // Reset input
@@ -1054,8 +1071,8 @@
     let currentRoundNum = 1;
 
     // Save user message immediately to current thread
-    saveThreadData(currentThreadId);
-    updateCurrentThreadMetadata(query);
+    await saveThreadData(currentThreadId);
+    await updateCurrentThreadMetadata(query);
 
     // Start SSE Stream with threadId
     if (activeEventSource) activeEventSource.close();

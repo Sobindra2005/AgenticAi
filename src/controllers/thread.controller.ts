@@ -22,9 +22,7 @@ export const ThreadController = {
    */
   async createThread(req: Request, res: Response) {
     try {
-      const id = String(
-        req.body.id || `th-${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`
-      );
+      const id = req.body.id ? String(req.body.id) : undefined;
       const title = String(req.body.title || "New Research Thread");
       const thread = await ThreadService.create(id, title);
       return res.json({ success: true, thread });

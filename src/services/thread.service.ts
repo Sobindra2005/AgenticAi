@@ -3,6 +3,10 @@ import { db } from "../db/index.js";
 import * as models from "../models/index.js";
 import { SourceItem, KnowledgeBaseEntry } from "../graphs/state.js";
 
+const isValidUUID = (id?: string): boolean =>
+  typeof id === "string" &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
 export const ThreadService = {
   /**
    * Retrieves all threads sorted by most recently updated.
@@ -18,6 +22,7 @@ export const ThreadService = {
    * Retrieves a single thread by its ID.
    */
   async getById(id: string): Promise<models.Thread | undefined> {
+    if (!isValidUUID(id)) return undefined;
     const rows = await db
       .select()
       .from(models.threads)
@@ -26,34 +31,40 @@ export const ThreadService = {
   },
 
   /**
-   * Creates a new thread record.
+   * Creates a new thread record. If no valid UUID is passed,
+   * PostgreSQL automatically assigns gen_random_uuid().
    */
-  async create(id: string, initialTitle: string = "New Research Thread"): Promise<models.Thread> {
-    const now = Date.now();
-    const newRecord: models.NewThread = {
-      id,
+  async create(id?: string, initialTitle: string = "New Research Thread"): Promise<models.Thread> {
+    if (id && isValidUUID(id)) {
+      const existing = await this.getById(id);
+      if (existing) return existing;
+    }
+
+    const payload: Partial<models.NewThread> = {
       title: initialTitle,
-      createdAt: now,
-      updatedAt: now,
-      messageCount: 0,
-      sourceCount: 0,
-      kbCount: 0,
       lastSnippet: "Fresh research thread ready.",
     };
+    if (id && isValidUUID(id)) {
+      payload.id = id;
+    }
 
-    await db.insert(models.threads).values(newRecord).onConflictDoNothing();
-    const existing = await this.getById(id);
-    return existing || (newRecord as models.Thread);
+    const [created] = await db
+      .insert(models.threads)
+      .values(payload as models.NewThread)
+      .returning();
+
+    return created;
   },
 
   /**
    * Updates metadata (e.g. title, summary, lastSnippet) for a thread.
    */
   async updateMeta(id: string, updates: Partial<models.Thread>): Promise<models.Thread | undefined> {
-    const updatedPayload = { ...updates, updatedAt: Date.now() };
+    if (!isValidUUID(id)) return undefined;
+    const { id: _, createdAt: __, ...validUpdates } = updates;
     await db
       .update(models.threads)
-      .set(updatedPayload)
+      .set({ ...validUpdates, updatedAt: new Date() })
       .where(eq(models.threads.id, id));
     return await this.getById(id);
   },
@@ -62,7 +73,8 @@ export const ThreadService = {
    * Deletes a thread and cascades all related messages, sources, and traces.
    */
   async delete(id: string): Promise<boolean> {
-    const result = await db
+    if (!isValidUUID(id)) return false;
+    await db
       .delete(models.threads)
       .where(eq(models.threads.id, id));
     return true;
@@ -72,6 +84,10 @@ export const ThreadService = {
    * Fetches full thread data including all messages, sources, KB entries, and traces.
    */
   async getFullData(id: string) {
+    if (!isValidUUID(id)) {
+      return { thread: undefined, messages: [], sources: [], kb: [], traces: [] };
+    }
+
     const [threadList, messagesList, sourcesList, kbList, tracesList] =
       await Promise.all([
         db.select().from(models.threads).where(eq(models.threads.id, id)),
@@ -112,6 +128,7 @@ export const ThreadService = {
 
   /**
    * Appends a message (user or assistant) to a thread in the database.
+   * Auto-assigns id and createdAt via PostgreSQL defaults.
    */
   async addMessage(
     threadId: string,
@@ -119,31 +136,28 @@ export const ThreadService = {
     content: string,
     extra?: { thinking?: string; report?: string; iterations?: number }
   ) {
-    await this.create(threadId);
+    const thread = await this.create(threadId);
+    const validThreadId = thread.id;
 
-    const msgId = "msg-" + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
-    const now = Date.now();
-
-    const newMsg: models.NewMessage = {
-      id: msgId,
-      threadId,
-      role,
-      content,
-      thinking: extra?.thinking ?? null,
-      report: extra?.report ?? null,
-      iterations: extra?.iterations ?? 1,
-      createdAt: now,
-    };
-
-    await db.insert(models.messages).values(newMsg);
+    const [newMsg] = await db
+      .insert(models.messages)
+      .values({
+        threadId: validThreadId,
+        role,
+        content,
+        thinking: extra?.thinking ?? null,
+        report: extra?.report ?? null,
+        iterations: extra?.iterations ?? 1,
+      })
+      .returning();
 
     // Update thread metrics
-    const currentThread = await this.getById(threadId);
+    const currentThread = await this.getById(validThreadId);
     const count = (currentThread?.messageCount ?? 0) + 1;
-    const updates: Partial<models.Thread> = {
+    const updates: any = {
       messageCount: count,
       lastSnippet: content.slice(0, 140),
-      updatedAt: now,
+      updatedAt: new Date(),
     };
 
     if (
@@ -153,12 +167,13 @@ export const ThreadService = {
       updates.title = content.slice(0, 48);
     }
 
-    await db.update(models.threads).set(updates).where(eq(models.threads.id, threadId));
+    await db.update(models.threads).set(updates).where(eq(models.threads.id, validThreadId));
     return newMsg;
   },
 
   /**
-   * Saves sources, knowledge base entries, and traces in batch directly into PostgreSQL.
+   * Saves sources, knowledge base entries, and traces directly into PostgreSQL.
+   * PostgreSQL automatically generates random UUIDs for all rows.
    */
   async saveBatchAssets(
     threadId: string,
@@ -166,58 +181,76 @@ export const ThreadService = {
     kbList: KnowledgeBaseEntry[],
     traceList?: Array<{ node: string; desc: string; time: string }>
   ) {
-    await this.create(threadId);
-    const now = Date.now();
+    if (!isValidUUID(threadId)) {
+      console.warn(`[ThreadService.saveBatchAssets] Skipped save for invalid threadId: "${threadId}"`);
+      return false;
+    }
 
-    if (sourcesList.length > 0) {
-      await db.delete(models.sources).where(eq(models.sources.threadId, threadId));
-      const sourceRows: models.NewSource[] = sourcesList.map((s) => ({
-        id: s.id || "src-" + Math.random().toString(36).substring(2, 9),
+    await this.create(threadId);
+
+    // 1. Deduplicate sources by URL
+    const seenUrls = new Set<string>();
+    const sourceRows: models.NewSource[] = [];
+    for (const s of sourcesList) {
+      if (!s.url || seenUrls.has(s.url)) continue;
+      seenUrls.add(s.url);
+      sourceRows.push({
         threadId,
         url: s.url,
         title: s.title || "Untitled",
         content: s.content || "",
         score: s.score ?? null,
         iteration: s.iteration ?? 1,
-        createdAt: now,
-      }));
-      await db.insert(models.sources).values(sourceRows);
+      });
     }
 
-    if (kbList.length > 0) {
-      await db.delete(models.knowledgeBase).where(eq(models.knowledgeBase.threadId, threadId));
-      const kbRows: models.NewKnowledgeBase[] = kbList.map((k) => ({
-        id: k.id || "kb-" + Math.random().toString(36).substring(2, 9),
+    // 2. Deduplicate KB entries by sourceUrl
+    const seenKbUrls = new Set<string>();
+    const kbRows: models.NewKnowledgeBase[] = [];
+    for (const k of kbList) {
+      if (!k.sourceUrl || seenKbUrls.has(k.sourceUrl)) continue;
+      seenKbUrls.add(k.sourceUrl);
+      kbRows.push({
         threadId,
         sourceUrl: k.sourceUrl,
         title: k.title,
         domain: k.domain,
         category: k.category,
         summary: k.summary,
-        keyTopics: k.keyTopics,
-        createdAt: now,
-      }));
+        keyTopics: k.keyTopics || [],
+      });
+    }
+
+    // 3. Prepare execution traces
+    const traceRows: models.NewTrace[] = (traceList || []).map((t) => ({
+      threadId,
+      node: t.node,
+      description: t.desc,
+      time: t.time,
+    }));
+
+    // Atomically replace assets for this thread
+    if (sourceRows.length > 0) {
+      await db.delete(models.sources).where(eq(models.sources.threadId, threadId));
+      await db.insert(models.sources).values(sourceRows);
+    }
+
+    if (kbRows.length > 0) {
+      await db.delete(models.knowledgeBase).where(eq(models.knowledgeBase.threadId, threadId));
       await db.insert(models.knowledgeBase).values(kbRows);
     }
 
-    if (traceList && traceList.length > 0) {
-      const traceRows: models.NewTrace[] = traceList.map((t) => ({
-        id: "tr-" + Math.random().toString(36).substring(2, 9),
-        threadId,
-        node: t.node,
-        description: t.desc,
-        time: t.time,
-        createdAt: now,
-      }));
+    if (traceRows.length > 0) {
+      await db.delete(models.traces).where(eq(models.traces.threadId, threadId));
       await db.insert(models.traces).values(traceRows);
     }
 
     await db
       .update(models.threads)
       .set({
-        sourceCount: sourcesList.length,
-        kbCount: kbList.length,
-        updatedAt: now,
+        sourceCount: sourceRows.length,
+        kbCount: kbRows.length,
+        updatedAt: new Date(),
       })
       .where(eq(models.threads.id, threadId));
 
@@ -228,6 +261,7 @@ export const ThreadService = {
    * Clears messages, sources, KB, and traces for a thread while keeping the thread container.
    */
   async clearThread(threadId: string) {
+    if (!isValidUUID(threadId)) return false;
     await Promise.all([
       db.delete(models.messages).where(eq(models.messages.threadId, threadId)),
       db.delete(models.sources).where(eq(models.sources.threadId, threadId)),
@@ -240,7 +274,7 @@ export const ThreadService = {
           sourceCount: 0,
           kbCount: 0,
           lastSnippet: "Cleared thread.",
-          updatedAt: Date.now(),
+          updatedAt: new Date(),
         })
         .where(eq(models.threads.id, threadId)),
     ]);
