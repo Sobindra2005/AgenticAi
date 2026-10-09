@@ -1,18 +1,30 @@
 import { Request, Response } from "express";
 import { runWorkflow, streamResearchWorkflow } from "../workflow.js";
+import { renderAppPage } from "../views/ssr.js";
+import { ThreadService } from "../services/thread.service.js";
 
 export const ResearchController = {
   /**
    * GET /
-   * Renders the Research Studio main view.
+   * Renders the Research Studio main view using React SSR.
    */
-  renderStudio(_req: Request, res: Response) {
-    res.render("index", {
-      title: "Agentic AI - Iterative Research Studio",
-      input: "",
-      result: null,
-      error: null,
-    });
+  async renderStudio(_req: Request, res: Response) {
+    try {
+      const initialThreads = await ThreadService.getAll();
+      const html = renderAppPage({
+        title: "Agentic AI - Iterative Research Studio",
+        initialThreads,
+      });
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (error) {
+      const html = renderAppPage({
+        title: "Agentic AI - Iterative Research Studio",
+        initialThreads: [],
+      });
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    }
   },
 
   /**
@@ -65,20 +77,20 @@ export const ResearchController = {
   async formRun(req: Request, res: Response) {
     const input = String(req.body.input ?? "").trim();
     try {
-      const result = await runWorkflow(input);
-      res.render("index", {
+      await runWorkflow(input);
+      const initialThreads = await ThreadService.getAll();
+      const html = renderAppPage({
         title: "Agentic AI - Iterative Research Studio",
-        input,
-        result,
-        error: null,
+        initialThreads,
       });
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
     } catch (error) {
-      res.status(500).render("index", {
+      const html = renderAppPage({
         title: "Agentic AI - Iterative Research Studio",
-        input,
-        result: null,
         error: error instanceof Error ? error.message : "Workflow execution failed.",
       });
+      res.status(500).setHeader("Content-Type", "text/html; charset=utf-8").send(html);
     }
   },
 };
