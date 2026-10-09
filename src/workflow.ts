@@ -152,6 +152,7 @@ export async function* streamResearchWorkflow(input: string, maxIterations: numb
           }
 
           const newSources = (data as any).newSourcesThisStep || [];
+
           yield {
             type: "sources_updated",
             allSources: accumulatedSources,

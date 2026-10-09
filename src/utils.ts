@@ -52,9 +52,3 @@ export const getTavily = () => {
     })
     return tavily;
 }
-
-// const interactWithTavily = async (input: string) => {
-//     const result = await getTavily().invoke({ query: input })
-//     console.log(result)
-// }
-// interactWithTavily("weather of pokhara").then((result) => console.log(result))
