@@ -4,7 +4,7 @@ export type WorkflowEvent =
   | { type: "step_start"; step: "planQuery" | "searchTavily" | "evaluateSufficiency" | "synthesizeReport"; label: string; iteration: number; query?: string }
   | { type: "thinking_chunk"; chunk: string; step?: "planQuery" | "evaluateSufficiency" | "synthesizeReport" | string; iteration?: number }
   | { type: "query_planned"; query: string; iteration: number }
-  | { type: "sources_updated"; allSources: SourceItem[]; newSources: SourceItem[]; kbEntries: KnowledgeBaseEntry[]; iteration: number; totalCount: number; newCount: number }
+  | { type: "sources_updated"; allSources: SourceItem[]; newSources: SourceItem[]; kbEntries?: KnowledgeBaseEntry[]; iteration: number; totalCount: number; newCount: number }
   | { type: "eval_decision"; sufficient: boolean; reason: string; nextQuery?: string; iteration: number }
   | { type: "report_chunk"; chunk: string }
   | { type: "done"; finalReport: string; sources: SourceItem[]; knowledgeBase: KnowledgeBaseEntry[]; queries: string[]; iterations: number };
@@ -147,17 +147,12 @@ export async function* streamResearchWorkflow(input: string, maxIterations: numb
           };
         } else if (nodeName === "searchTavily") {
           accumulatedSources = (data as any).sources || [];
-          if (Array.isArray((data as any).knowledgeBase)) {
-            accumulatedKB = [...accumulatedKB, ...(data as any).knowledgeBase];
-          }
-
           const newSources = (data as any).newSourcesThisStep || [];
 
           yield {
             type: "sources_updated",
             allSources: accumulatedSources,
             newSources,
-            kbEntries: (data as any).knowledgeBase || [],
             iteration: currentIteration,
             totalCount: accumulatedSources.length,
             newCount: newSources.length,

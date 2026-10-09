@@ -44,10 +44,18 @@
     <div class="vault-body">
       <!-- TAB 1: Sources Vault -->
       <div id="tab-content-sources" class="vault-tab-content active">
-        <div class="vault-toolbar">
+        <div class="vault-toolbar" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
           <input type="text" id="sources-search" class="search-filter"
-            placeholder="Filter sources by title/domain..." />
-          <span id="sources-stat" style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);">0
+            placeholder="Filter sources by title/domain..." style="flex: 1; min-width: 140px;" />
+          <button id="btn-add-to-kb" class="btn-primary" style="display: none; align-items: center; gap: 6px; padding: 6px 12px; font-size: 11px; white-space: nowrap; cursor: pointer;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Add to Knowledge Base</span>
+            <span id="selected-kb-count" class="tab-badge" style="background: rgba(255, 255, 255, 0.25);">0</span>
+          </button>
+          <span id="sources-stat" style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); margin-left: auto;">0
             unique sources</span>
         </div>
         <div id="sources-list" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
@@ -144,6 +152,9 @@
   const btnCopyKb = document.getElementById('btn-copy-kb');
   const btnDownloadKb = document.getElementById('btn-download-kb');
   const btnClearTrace = document.getElementById('btn-clear-trace');
+  const btnAddToKb = document.getElementById('btn-add-to-kb');
+  const selectedKbCount = document.getElementById('selected-kb-count');
+  const selectedSourceUrls = new Set();
 
   // Setup Prompt Chips
   document.querySelectorAll('.chip').forEach(btn => {
@@ -294,10 +305,56 @@
     }).join('');
   }
 
+  // Helper to categorize sources when user adds them to Knowledge Base
+  function categorizeSource(title, content) {
+    const text = ((title || '') + ' ' + (content || '')).toLowerCase();
+    if (text.includes("course") || text.includes("specialization") || text.includes("curriculum") || text.includes("syllabus") || text.includes("certification")) {
+      return "Course";
+    }
+    if (text.includes("docs") || text.includes("documentation") || text.includes("api reference") || text.includes("manual")) {
+      return "Documentation";
+    }
+    if (text.includes("tutorial") || text.includes("guide") || text.includes("how to") || text.includes("step-by-step")) {
+      return "Tutorial";
+    }
+    if (text.includes("github.com") || text.includes("repository") || text.includes("framework")) {
+      return "Resource";
+    }
+    return "Article";
+  }
+
+  function extractKeyTopics(title, content) {
+    const combined = ((title || '') + ' ' + (content || '')).toLowerCase();
+    const commonTopics = [
+      "langgraph", "langchain", "agentic ai", "multi-agent", "rag", "vector database",
+      "deep learning", "machine learning", "nlp", "llm", "transformers", "pytorch",
+      "python", "prompt engineering", "fine-tuning", "autonomous agents", "evaluations",
+      "state graph", "human-in-the-loop", "memory", "tools", "fastapi", "typescript"
+    ];
+    const found = commonTopics.filter(topic => combined.includes(topic));
+    if (found.length === 0) {
+      return (title || '').split(/\s+/).filter(w => w.length > 4).slice(0, 4);
+    }
+    return found.slice(0, 5);
+  }
+
+  function updateAddToKbButton() {
+    const validSelected = Array.from(selectedSourceUrls).filter(url => !allKB.some(k => k.sourceUrl === url));
+    if (selectedKbCount) selectedKbCount.textContent = validSelected.length;
+    if (btnAddToKb) {
+      if (validSelected.length > 0) {
+        btnAddToKb.style.display = 'inline-flex';
+      } else {
+        btnAddToKb.style.display = 'none';
+      }
+    }
+  }
+
   // Render Sources Vault
   function renderSources(itemsToRender = allSources) {
     tabSourcesCount.textContent = allSources.length;
     sourcesStat.textContent = `${allSources.length} unique sources`;
+    updateAddToKbButton();
 
     if (itemsToRender.length === 0) {
       sourcesList.innerHTML = `
@@ -310,11 +367,25 @@
       return;
     }
 
-    sourcesList.innerHTML = itemsToRender.map((s, idx) => `
-      <div class="source-card">
+    sourcesList.innerHTML = itemsToRender.map((s, idx) => {
+      const inKB = allKB.some(k => k.sourceUrl === s.url);
+      const isChecked = selectedSourceUrls.has(s.url);
+
+      return `
+      <div class="source-card ${inKB ? 'source-in-kb' : ''}">
         <div class="source-card-header">
-          <span class="source-domain">${extractDomain(s.url)}</span>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: ${inKB ? 'default' : 'pointer'}; margin: 0; user-select: none;">
+            <input 
+              type="checkbox" 
+              class="source-kb-cb" 
+              data-url="${escapeHtml(s.url)}" 
+              ${inKB ? 'checked disabled title="Already in Knowledge Base"' : (isChecked ? 'checked' : '')}
+              style="width: 15px; height: 15px; accent-color: ${inKB ? 'var(--emerald)' : 'var(--accent)'}; cursor: ${inKB ? 'not-allowed' : 'pointer'};"
+            />
+            <span class="source-domain">${extractDomain(s.url)}</span>
+          </label>
           <div style="display: flex; gap: 5px; align-items: center;">
+            ${inKB ? '<span class="badge" style="color: var(--emerald); border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.1); font-size: 10px;">✓ In Knowledge Base</span>' : ''}
             <span class="badge" style="font-size: 10px;">Round ${s.iteration || 1}</span>
             ${s.isNew ? '<span class="pill-new">NEW</span>' : ''}
           </div>
@@ -323,7 +394,60 @@
         <div class="source-snippet" id="snippet-${idx}">${escapeHtml(s.content)}</div>
         <button class="btn-expand-snippet" onclick="toggleSnippet(${idx})">Toggle Excerpt</button>
       </div>
-    `).join('');
+    `;
+    }).join('');
+  }
+
+  // Handle source checkbox change via event delegation
+  sourcesList.addEventListener('change', (e) => {
+    const cb = e.target.closest('.source-kb-cb');
+    if (cb && !cb.disabled) {
+      const url = cb.getAttribute('data-url');
+      if (url) {
+        if (cb.checked) {
+          selectedSourceUrls.add(url);
+        } else {
+          selectedSourceUrls.delete(url);
+        }
+        updateAddToKbButton();
+      }
+    }
+  });
+
+  // Add selected sources to Knowledge Base
+  if (btnAddToKb) {
+    btnAddToKb.addEventListener('click', () => {
+      const validSelected = Array.from(selectedSourceUrls).filter(url => !allKB.some(k => k.sourceUrl === url));
+      if (validSelected.length === 0) return;
+
+      const existingKbUrls = new Set(allKB.map(k => k.sourceUrl));
+
+      validSelected.forEach(url => {
+        if (!existingKbUrls.has(url)) {
+          const source = allSources.find(s => s.url === url);
+          if (source) {
+            allKB.push({
+              id: source.id || Math.random().toString(36).substring(2, 9),
+              title: source.title || "Untitled Source",
+              sourceUrl: source.url,
+              domain: extractDomain(source.url),
+              category: categorizeSource(source.title, source.content || ''),
+              summary: (source.content || '').slice(0, 240) + ((source.content || '').length > 240 ? '...' : ''),
+              keyTopics: extractKeyTopics(source.title || '', source.content || '')
+            });
+            existingKbUrls.add(url);
+          }
+        }
+      });
+
+      selectedSourceUrls.clear();
+      updateAddToKbButton();
+      renderKB();
+      renderSources();
+
+      tabKbCount.classList.add('tab-badge-highlight');
+      setTimeout(() => tabKbCount.classList.remove('tab-badge-highlight'), 1000);
+    });
   }
 
   window.toggleSnippet = function (idx) {
@@ -482,7 +606,7 @@
         }
 
         else if (data.type === 'sources_updated') {
-          // Update global sources & KB
+          // Update global sources (manual addition to KB)
           const existingUrls = new Set(allSources.map(s => s.url));
           (data.newSources || []).forEach(ns => {
             if (!existingUrls.has(ns.url)) {
@@ -490,16 +614,6 @@
             }
           });
           renderSources();
-
-          if (Array.isArray(data.kbEntries)) {
-            const existingKbUrls = new Set(allKB.map(k => k.sourceUrl));
-            data.kbEntries.forEach(ke => {
-              if (!existingKbUrls.has(ke.sourceUrl)) {
-                allKB.push(ke);
-              }
-            });
-            renderKB();
-          }
 
           // Populate mini chips in chat
           const tray = document.getElementById(`tray-${agentMsgId}-${data.iteration}`);

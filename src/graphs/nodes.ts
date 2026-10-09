@@ -124,7 +124,6 @@ export const searchTavilyNode = async (state: ResearchState): Promise<Partial<Re
 
     const existingUrls = new Set((state.sources || []).map(s => s.url));
     const newSources: SourceItem[] = [];
-    const newKbEntries: KnowledgeBaseEntry[] = [];
 
     for (const r of rawResults) {
         const url = r.url;
@@ -142,26 +141,13 @@ export const searchTavilyNode = async (state: ResearchState): Promise<Partial<Re
         };
 
         newSources.push(item);
-
-        if (isNew) {
-            newKbEntries.push({
-                id: item.id,
-                title: item.title,
-                sourceUrl: url,
-                domain: extractDomain(url),
-                category: categorizeSource(item.title, item.content),
-                summary: item.content.slice(0, 240) + (item.content.length > 240 ? "..." : ""),
-                keyTopics: extractKeyTopics(item.title, item.content),
-            });
-        }
     }
 
-    console.log(`[searchTavilyNode] Retrieved ${rawResults.length} results (${newKbEntries.length} new sources added to KB)`);
+    console.log(`[searchTavilyNode] Retrieved ${rawResults.length} results (${newSources.filter(s => s.isNew).length} new sources)`);
 
     return {
         sources: newSources,
         newSourcesThisStep: newSources.filter(s => s.isNew),
-        knowledgeBase: newKbEntries,
     };
 };
 
