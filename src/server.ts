@@ -3,7 +3,8 @@ import express from "express";
 import expressLayouts from "express-ejs-layouts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runWorkflow, streamResearchWorkflow } from "./workflow.js";
+import { apiRouter, researchRoutes } from "./routes/index.js";
+import { checkDatabaseConnection } from "./db/index.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const currentFile = fileURLToPath(import.meta.url);
@@ -11,65 +12,23 @@ const currentDirectory = path.dirname(currentFile);
 const projectRoot = path.resolve(currentDirectory, "..");
 
 const app = express();
+
+// View Engine & Layouts
 app.set("view engine", "ejs");
 app.set("views", path.join(projectRoot, "views"));
 app.set("layout", "layout");
 app.use(expressLayouts);
+
+// Body Parsing & Static Assets
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 app.use(express.static(path.join(projectRoot, "public")));
 
-app.get("/", (_request, response) => {
-  response.render("index", {
-    title: "Agentic AI - Iterative Research Studio",
-    input: "",
-    result: null,
-    error: null,
-  });
-});
+// Mount Routers (MVC Pattern)
+app.use("/api", apiRouter);
+app.use("/", researchRoutes);
 
-app.post("/run", async (request, response) => {
-  const input = String(request.body.input ?? "").trim();
-
-  try {
-    const result = await runWorkflow(input);
-    response.render("index", { title: "Agentic AI - Iterative Research Studio", input, result, error: null });
-  } catch (error) {
-    response.status(500).render("index", {
-      title: "Agentic AI - Iterative Research Studio",
-      input,
-      result: null,
-      error: error instanceof Error ? error.message : "Workflow execution failed.",
-    });
-  }
-});
-
-app.get("/api/run", async (request, response) => {
-  response.json(await runWorkflow(String(request.query.input ?? "")));
-});
-
-app.get("/api/stream", async (request, response) => {
-  const input = String(request.query.input ?? "").trim();
-  if (!input) {
-    return response.status(400).end();
-  }
-
-  response.setHeader('Content-Type', 'text/event-stream');
-  response.setHeader('Cache-Control', 'no-cache');
-  response.setHeader('Connection', 'keep-alive');
-
-  try {
-    const generator = streamResearchWorkflow(input, 3);
-    for await (const event of generator) {
-      response.write(`data: ${JSON.stringify(event)}\n\n`);
-    }
-    response.end();
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    response.write(`data: ${JSON.stringify({ type: "error", error: errorMessage })}\n\n`);
-    response.end();
-  }
-});
-
+// 404 Handler
 app.use((_request, response) => {
   response.status(404).render("index", {
     title: "Not Found",
@@ -79,7 +38,14 @@ app.use((_request, response) => {
   });
 });
 
-app.listen(port, () => {
-  console.log(`Agentic AI Playground running at http://localhost:${port}`);
-  console.log("Use the browser UI or /api/chain?message=your-name and /api/graph?message=start");
-});
+// Verify Database Connection & Start Server
+checkDatabaseConnection()
+  .then(() => {
+    app.listen(port, () => {
+      console.log(`Agentic AI Playground running at http://localhost:${port}`);
+    });
+  })
+  .catch((err) => {
+    console.error("[Server] Cannot start server without PostgreSQL database connection:", err.message);
+    process.exit(1);
+  });

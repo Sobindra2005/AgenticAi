@@ -1,4 +1,5 @@
 import { researchGraph, SourceItem, KnowledgeBaseEntry } from "./graphs/index.js";
+import { ThreadService } from "./services/thread.service.js";
 
 export type WorkflowEvent =
   | { type: "step_start"; step: "planQuery" | "searchTavily" | "evaluateSufficiency" | "synthesizeReport"; label: string; iteration: number; query?: string }
@@ -22,10 +23,23 @@ export type WorkflowResult = {
  * Executes the iterative research graph and yields typed streaming events
  * for real-time frontend visualization.
  */
-export async function* streamResearchWorkflow(input: string, maxIterations: number = 3): AsyncGenerator<WorkflowEvent> {
+export async function* streamResearchWorkflow(
+  input: string,
+  maxIterations: number = 3,
+  threadId?: string
+): AsyncGenerator<WorkflowEvent> {
   const task = input.trim();
   if (!task) {
     throw new Error("Please enter a research topic or question.");
+  }
+
+  if (threadId) {
+    console.log(`[streamResearchWorkflow] Running research for Thread ID: "${threadId}"`);
+    try {
+      await ThreadService.addMessage(threadId, "user", task);
+    } catch (e) {
+      console.error("[streamResearchWorkflow] Failed to record user message:", e);
+    }
   }
 
   // Initial event: planning started
@@ -204,6 +218,20 @@ export async function* streamResearchWorkflow(input: string, maxIterations: numb
           };
         }
       }
+    }
+  }
+
+  // Persist assistant response and gathered assets to PostgreSQL via Drizzle
+  if (threadId) {
+    const completeReport = finalReport || accumulatedReport;
+    try {
+      await ThreadService.addMessage(threadId, "assistant", completeReport, {
+        report: completeReport,
+        iterations: currentIteration,
+      });
+      await ThreadService.saveBatchAssets(threadId, accumulatedSources, accumulatedKB);
+    } catch (e) {
+      console.error("[streamResearchWorkflow] Failed to persist thread completion to database:", e);
     }
   }
 

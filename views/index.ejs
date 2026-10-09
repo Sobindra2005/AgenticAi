@@ -1,117 +1,222 @@
-<section class="workspace">
-  <!-- Left Panel: Chat & Research Execution Feed -->
-  <section class="panel chat-panel">
-
-    <div id="chat-history" class="chat-history">
-
+<!-- Application Header -->
+<header class="app-header">
+  <div class="brand-group">
+    <div class="brand-logo">
+      <div class="logo-dot"></div>
+      <span>Agentic AI Studio</span>
     </div>
+    <div class="model-badges">
+      <span class="badge badge-accent">LangGraph v1.4</span>
+      <span class="badge badge-cyan">DeepSeek-R1</span>
+      <span class="badge badge-orange">Tavily Search</span>
+    </div>
+  </div>
 
-    <form id="chat-form" class="chat-input-bar">
-      <textarea id="chat-input" class="text-input"
-        placeholder="Ask to research courses, syllabus, or technical topics... (Press Enter to Send)"
-        rows="1"></textarea>
-      <button id="btn-submit" type="submit" class="btn-send">
-        <span>Research</span>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+  <div class="nav-tabs">
+    <button id="nav-btn-threads" class="nav-tab-btn active" title="Browse all research threads">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+        stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7"></rect>
+        <rect x="14" y="3" width="7" height="7"></rect>
+        <rect x="14" y="14" width="7" height="7"></rect>
+        <rect x="3" y="14" width="7" height="7"></rect>
+      </svg>
+      <span>Threads Hub</span>
+      <span id="nav-threads-count" class="tab-badge">0</span>
+    </button>
+    <button id="nav-btn-workspace" class="nav-tab-btn" title="Open active research workspace">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+        stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+      </svg>
+      <span id="nav-workspace-label">Active Workspace</span>
+    </button>
+  </div>
+
+  <div class="header-actions">
+    <button id="btn-new-thread-top" class="btn-primary-accent" title="Start a fresh isolated research thread">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+        stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+      <span>New Thread</span>
+    </button>
+  </div>
+</header>
+
+<!-- VIEW 1: Initial Threads Hub / Cards View -->
+<section id="threads-view" class="threads-view">
+
+  <div class="threads-toolbar">
+    <div class="threads-search-bar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round" style="color: var(--muted);">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="text" id="threads-search" placeholder="Search threads by topic, query, or ID..." />
+    </div>
+    <span id="threads-stat-label" class="threads-count-badge">0 active threads</span>
+  </div>
+
+  <!-- Threads Cards Grid -->
+  <div id="threads-grid" class="threads-grid">
+    <!-- Populated dynamically via JS -->
+  </div>
+</section>
+
+<!-- VIEW 2: Active Workspace (Scoped to Current Thread) -->
+<section id="workspace-view" style="display: none; flex-direction: column; flex: 1; min-height: 0; gap: 8px;">
+  <!-- Workspace Top Sub-bar -->
+  <div class="workspace-topbar">
+    <div class="workspace-thread-info">
+      <button id="btn-back-to-threads" class="btn-secondary" title="Return to All Threads">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
           stroke-linecap="round" stroke-linejoin="round">
-          <line x1="5" y1="12" x2="19" y2="12" />
-          <polyline points="12 5 19 12 12 19" />
+          <line x1="19" y1="12" x2="5" y2="12"></line>
+          <polyline points="12 19 5 12 12 5"></polyline>
         </svg>
+        <span>All Threads</span>
       </button>
-    </form>
-  </section>
 
-  <!-- Right Panel: Tabbed Research Vault & Telemetry -->
-  <section class="panel vault-panel">
-    <div class="vault-tabs">
-      <button class="vault-tab-btn active" data-tab="sources">
-        <span>🌐 Sources Vault</span>
-        <span id="tab-sources-count" class="tab-badge">0</span>
-      </button>
-      <button class="vault-tab-btn" data-tab="kb">
-        <span>📚 Knowledge Base</span>
-        <span id="tab-kb-count" class="tab-badge">0</span>
-      </button>
-      <button class="vault-tab-btn" data-tab="trace">
-        <span>⚡ Graph Trace</span>
-        <span id="tab-trace-count" class="tab-badge">0</span>
-      </button>
-    </div>
-
-    <div class="vault-body">
-      <!-- TAB 1: Sources Vault -->
-      <div id="tab-content-sources" class="vault-tab-content active">
-        <div class="vault-toolbar" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-          <input type="text" id="sources-search" class="search-filter"
-            placeholder="Filter sources by title/domain..." style="flex: 1; min-width: 140px;" />
-          <button id="btn-add-to-kb" class="btn-primary" style="display: none; align-items: center; gap: 6px; padding: 6px 12px; font-size: 11px; white-space: nowrap; cursor: pointer;">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-            <span>Add to Knowledge Base</span>
-            <span id="selected-kb-count" class="tab-badge" style="background: rgba(255, 255, 255, 0.25);">0</span>
-          </button>
-          <span id="sources-stat" style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); margin-left: auto;">0
-            unique sources</span>
-        </div>
-        <div id="sources-list" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
-          <div class="vault-empty">
-            <span class="vault-empty-icon">🌐</span>
-            <strong>No sources collected yet</strong>
-            <p style="font-size: 12px;">Run a research query to gather Tavily sources.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- TAB 2: Knowledge Base -->
-      <div id="tab-content-kb" class="vault-tab-content">
-        <div class="vault-toolbar">
-          <div style="display: flex; gap: 6px;">
-            <button id="btn-copy-kb" class="btn-secondary" title="Copy Knowledge Base as JSON">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-              Copy JSON
-            </button>
-            <button id="btn-download-kb" class="btn-secondary" title="Download as Markdown">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              Export MD
-            </button>
-          </div>
-          <span id="kb-stat" style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);">0 items
-            ready</span>
-        </div>
-        <div id="kb-list" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
-          <div class="vault-empty">
-            <span class="vault-empty-icon">📚</span>
-            <strong>Knowledge Base Empty</strong>
-            <p style="font-size: 12px;">Extracted course curricula & guides will appear here.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- TAB 3: Graph Execution Trace -->
-      <div id="tab-content-trace" class="vault-tab-content">
-        <div class="vault-toolbar">
-          <span style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);">LangGraph Execution
-            Telemetry</span>
-          <button id="btn-clear-trace" class="btn-secondary" style="font-size: 11px; padding: 3px 8px;">Clear</button>
-        </div>
-        <div id="trace-list" style="display: flex; flex-direction: column; gap: 2px; overflow-y: auto; padding: 6px 0;">
-          <div class="vault-empty">
-            <span class="vault-empty-icon">⚡</span>
-            <strong>No trace events recorded</strong>
-            <p style="font-size: 12px;">Node telemetry will log in real time as the graph executes.</p>
-          </div>
-        </div>
+      <div class="workspace-thread-title">
+        <span id="current-thread-title">Untitled Thread</span>
+        <span id="current-thread-badge" class="badge" style="font-size: 10px;">#th-new</span>
       </div>
     </div>
+
+    <div class="workspace-actions">
+      <button id="btn-clear-chat" class="btn-secondary" title="Clear messages in this thread">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+        <span>Clear Thread</span>
+      </button>
+
+    </div>
+  </div>
+
+  <section class="workspace">
+    <!-- Left Panel: Chat & Research Execution Feed -->
+    <section class="panel chat-panel">
+      <div id="chat-history" class="chat-history">
+        <!-- Rendered chat turns for this thread -->
+      </div>
+
+      <form id="chat-form" class="chat-input-bar">
+        <textarea id="chat-input" class="text-input"
+          placeholder="Research courses, topics, or ask follow-ups for this thread... (Press Enter to Send)"
+          rows="1"></textarea>
+        <button id="btn-submit" type="submit" class="btn-send">
+          <span>Research</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+          </svg>
+        </button>
+      </form>
+    </section>
+
+    <!-- Right Panel: Tabbed Research Vault & Telemetry -->
+    <section class="panel vault-panel">
+      <div class="vault-tabs">
+        <button class="vault-tab-btn active" data-tab="sources">
+          <span>🌐 Sources Vault</span>
+          <span id="tab-sources-count" class="tab-badge">0</span>
+        </button>
+        <button class="vault-tab-btn" data-tab="kb">
+          <span>📚 Knowledge Base</span>
+          <span id="tab-kb-count" class="tab-badge">0</span>
+        </button>
+        <button class="vault-tab-btn" data-tab="trace">
+          <span>⚡ Graph Trace</span>
+          <span id="tab-trace-count" class="tab-badge">0</span>
+        </button>
+      </div>
+
+      <div class="vault-body">
+        <!-- TAB 1: Sources Vault -->
+        <div id="tab-content-sources" class="vault-tab-content active">
+          <div class="vault-toolbar" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <input type="text" id="sources-search" class="search-filter" placeholder="Filter sources by title/domain..."
+              style="flex: 1; min-width: 140px;" />
+            <button id="btn-add-to-kb" class="btn-primary"
+              style="display: none; align-items: center; gap: 6px; padding: 6px 12px; font-size: 11px; white-space: nowrap; cursor: pointer;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>Add to Knowledge Base</span>
+              <span id="selected-kb-count" class="tab-badge" style="background: rgba(255, 255, 255, 0.25);">0</span>
+            </button>
+            <span id="sources-stat"
+              style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); margin-left: auto;">0
+              unique sources</span>
+          </div>
+          <div id="sources-list" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
+            <div class="vault-empty">
+              <span class="vault-empty-icon">🌐</span>
+              <strong>No sources collected yet</strong>
+              <p style="font-size: 12px;">Run a research query to gather Tavily sources.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: Knowledge Base -->
+        <div id="tab-content-kb" class="vault-tab-content">
+          <div class="vault-toolbar">
+            <div style="display: flex; gap: 6px;">
+              <button id="btn-copy-kb" class="btn-secondary" title="Copy Knowledge Base as JSON">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                Copy JSON
+              </button>
+              <button id="btn-download-kb" class="btn-secondary" title="Download as Markdown">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Export MD
+              </button>
+            </div>
+            <span id="kb-stat" style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);">0 items
+              ready</span>
+          </div>
+          <div id="kb-list" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
+            <div class="vault-empty">
+              <span class="vault-empty-icon">📚</span>
+              <strong>Knowledge Base Empty</strong>
+              <p style="font-size: 12px;">Extracted course curricula & guides will appear here.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: Graph Execution Trace -->
+        <div id="tab-content-trace" class="vault-tab-content">
+          <div class="vault-toolbar">
+            <span style="font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);">LangGraph Execution
+              Telemetry</span>
+            <button id="btn-clear-trace" class="btn-secondary" style="font-size: 11px; padding: 3px 8px;">Clear</button>
+          </div>
+          <div id="trace-list"
+            style="display: flex; flex-direction: column; gap: 2px; overflow-y: auto; padding: 6px 0;">
+            <div class="vault-empty">
+              <span class="vault-empty-icon">⚡</span>
+              <strong>No trace events recorded</strong>
+              <p style="font-size: 12px;">Node telemetry will log in real time as the graph executes.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </section>
 </section>
 
@@ -123,18 +228,39 @@
     breaks: true
   });
 
-  // State management
+  // State management per thread
+  let currentThreadId = null;
   let allSources = [];
   let allKB = [];
   let traceSteps = [];
   let activeEventSource = null;
+  const unselectedSourceUrls = new Set();
 
-  // DOM Elements
+  // DOM Elements - Navigation & Views
+  const navBtnThreads = document.getElementById('nav-btn-threads');
+  const navBtnWorkspace = document.getElementById('nav-btn-workspace');
+  const navThreadsCount = document.getElementById('nav-threads-count');
+  const navWorkspaceLabel = document.getElementById('nav-workspace-label');
+  const threadsView = document.getElementById('threads-view');
+  const workspaceView = document.getElementById('workspace-view');
+  const threadsGrid = document.getElementById('threads-grid');
+  const threadsSearch = document.getElementById('threads-search');
+  const threadsStatLabel = document.getElementById('threads-stat-label');
+
+  // Buttons for thread creation
+  const btnNewThreadTop = document.getElementById('btn-new-thread-top');
+  const btnNewThreadHero = document.getElementById('btn-new-thread-hero');
+  const btnNewThreadWorkspace = document.getElementById('btn-new-thread-workspace');
+  const btnBackToThreads = document.getElementById('btn-back-to-threads');
+  const btnClearChat = document.getElementById('btn-clear-chat');
+
+  // Workspace Elements
+  const currentThreadTitle = document.getElementById('current-thread-title');
+  const currentThreadBadge = document.getElementById('current-thread-badge');
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
   const chatHistory = document.getElementById('chat-history');
   const btnSubmit = document.getElementById('btn-submit');
-  const btnClearChat = document.getElementById('btn-clear-chat');
 
   // Vault Elements
   const sourcesList = document.getElementById('sources-list');
@@ -151,18 +277,387 @@
   const btnClearTrace = document.getElementById('btn-clear-trace');
   const btnAddToKb = document.getElementById('btn-add-to-kb');
   const selectedKbCount = document.getElementById('selected-kb-count');
-  const unselectedSourceUrls = new Set();
 
-  // Setup Prompt Chips
-  document.querySelectorAll('.chip').forEach(btn => {
-    btn.addEventListener('click', () => {
-      chatInput.value = btn.getAttribute('data-prompt');
-      chatInput.focus();
-      chatForm.dispatchEvent(new Event('submit'));
+  // ==========================================
+  // THREAD DATABASE API HELPERS (PostgreSQL via REST)
+  // ==========================================
+
+  let cachedThreadsList = [];
+
+  async function getStoredThreads() {
+    try {
+      const res = await fetch('/api/threads');
+      if (res.ok) {
+        const data = await res.json();
+        cachedThreadsList = data.threads || [];
+        updateNavThreadsCount(cachedThreadsList.length);
+        return cachedThreadsList;
+      }
+    } catch (e) {
+      console.warn("Failed to fetch threads from DB, using cache:", e);
+    }
+    return cachedThreadsList;
+  }
+
+  function updateNavThreadsCount(count) {
+    if (navThreadsCount) navThreadsCount.textContent = count;
+    if (threadsStatLabel) threadsStatLabel.textContent = `${count} active thread${count === 1 ? '' : 's'}`;
+  }
+
+  async function loadThreadData(id) {
+    try {
+      const res = await fetch(`/api/threads/${encodeURIComponent(id)}`);
+      if (res.ok) {
+        const payload = await res.json();
+        return payload;
+      }
+    } catch (e) {
+      console.error(`Failed to load thread ${id} from DB:`, e);
+    }
+    return { thread: null, messages: [], sources: [], kb: [], traces: [] };
+  }
+
+  async function saveThreadData(id) {
+    if (!id) return;
+    try {
+      await fetch(`/api/threads/${encodeURIComponent(id)}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sources: allSources,
+          kb: allKB,
+          trace: traceSteps,
+        }),
+      });
+    } catch (e) {
+      console.error("Failed to save thread assets to DB:", e);
+    }
+  }
+
+  function formatRelativeTime(timestamp) {
+    const diffMs = Date.now() - timestamp;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${diffDays}d ago`;
+  }
+
+  // ==========================================
+  // VIEW SWITCHING & RENDERING
+  // ==========================================
+
+  async function showThreadsView() {
+    if (currentThreadId) {
+      await saveThreadData(currentThreadId);
+    }
+
+    threadsView.style.display = 'flex';
+    workspaceView.style.display = 'none';
+    navBtnThreads.classList.add('active');
+    navBtnWorkspace.classList.remove('active');
+    await renderThreadsGrid(threadsSearch ? threadsSearch.value.trim() : '');
+  }
+
+  async function showWorkspaceView(threadId) {
+    if (!threadId) {
+      const threads = await getStoredThreads();
+      if (threads.length > 0) {
+        threadId = threads[0].id;
+      } else {
+        threadId = await createNewThread();
+        return;
+      }
+    }
+
+    if (currentThreadId && currentThreadId !== threadId) {
+      await saveThreadData(currentThreadId);
+    }
+
+    currentThreadId = threadId;
+    localStorage.setItem('agentic_active_thread_id', threadId);
+
+    // Fetch full data from PostgreSQL backend
+    const data = await loadThreadData(threadId);
+    const thread = data.thread || cachedThreadsList.find(t => t.id === threadId);
+    const title = thread ? thread.title : 'Research Thread';
+
+    if (currentThreadTitle) currentThreadTitle.textContent = title;
+    if (currentThreadBadge) currentThreadBadge.textContent = `#${threadId.slice(-6)}`;
+    if (navWorkspaceLabel) navWorkspaceLabel.textContent = title.length > 18 ? title.slice(0, 18) + '...' : title;
+
+    // Render messages from DB
+    chatHistory.innerHTML = '';
+    if (Array.isArray(data.messages) && data.messages.length > 0) {
+      data.messages.forEach(msg => {
+        if (msg.role === 'user') {
+          const userMsg = document.createElement('div');
+          userMsg.className = 'user-message';
+          userMsg.textContent = msg.content;
+          chatHistory.appendChild(userMsg);
+        } else {
+          const agentMsg = document.createElement('div');
+          agentMsg.className = 'assistant-message';
+          agentMsg.innerHTML = `
+            <div class="report-content">
+              ${md.render(msg.report || msg.content)}
+            </div>
+          `;
+          chatHistory.appendChild(agentMsg);
+        }
+      });
+    }
+
+    allSources = data.sources || [];
+    allKB = data.kb || [];
+    traceSteps = data.traces || [];
+    unselectedSourceUrls.clear();
+
+    // Render Vault contents
+    renderSources();
+    renderKB();
+    renderTrace();
+
+    // Show workspace
+    threadsView.style.display = 'none';
+    workspaceView.style.display = 'flex';
+    navBtnThreads.classList.remove('active');
+    navBtnWorkspace.classList.add('active');
+
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+    chatInput.focus();
+  }
+  // Render Thread Cards in the Hub Grid
+  async function renderThreadsGrid(filterTerm = '') {
+    const threads = await getStoredThreads();
+    updateNavThreadsCount(threads.length);
+
+    const term = filterTerm.toLowerCase();
+    const filtered = threads.filter(t =>
+      t.title.toLowerCase().includes(term) ||
+      (t.lastSnippet && t.lastSnippet.toLowerCase().includes(term)) ||
+      t.id.toLowerCase().includes(term)
+    );
+
+    let html = `
+      <!-- Create New Thread Card -->
+      <div id="card-create-thread" class="thread-card-create">
+        <div class="thread-create-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </div>
+        <div class="thread-create-label">+ Start New Thread</div>
+        <div class="thread-create-hint">Creates an isolated session with fresh checkpoints</div>
+      </div>
+    `;
+
+    if (filtered.length === 0 && term) {
+      html += `
+        <div style="grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--muted); background: var(--panel-card); border-radius: 12px; border: 1px solid var(--line);">
+          <p style="font-size: 14px;">No threads found matching "${escapeHtml(filterTerm)}".</p>
+        </div>
+      `;
+    } else {
+      filtered.forEach(thread => {
+        const isActive = thread.id === currentThreadId;
+        const timeStr = formatRelativeTime(thread.updatedAt || thread.createdAt);
+        const snippet = thread.lastSnippet || 'New research thread ready. Enter a topic to begin.';
+
+        html += `
+          <div class="thread-card ${isActive ? 'active-thread-card' : ''}" data-id="${thread.id}">
+            <div class="thread-card-header">
+              <div class="thread-card-title-group">
+                <div class="thread-card-title" title="${escapeHtml(thread.title)}">${escapeHtml(thread.title)}</div>
+                <div class="thread-card-meta">
+                  <span>#${thread.id.slice(-6)}</span>
+                  <span>•</span>
+                  <span>${timeStr}</span>
+                </div>
+              </div>
+              <button class="thread-delete-btn" data-delete-id="${thread.id}" title="Delete thread">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+              </button>
+            </div>
+
+            <div class="thread-card-snippet">${escapeHtml(snippet)}</div>
+
+            <div class="thread-card-footer">
+              <div class="thread-metrics-group">
+                <span class="thread-metric" title="Turns / Messages">
+                  <span>💬</span>
+                  <span>${thread.messageCount || 0}</span>
+                </span>
+                <span class="thread-metric" title="Sources Vault">
+                  <span>🌐</span>
+                  <span>${thread.sourceCount || 0}</span>
+                </span>
+                <span class="thread-metric" title="Knowledge Base items">
+                  <span>📚</span>
+                  <span>${thread.kbCount || 0}</span>
+                </span>
+              </div>
+              <span class="thread-open-link">
+                <span>Open Chat</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                  <polyline points="12 5 19 12 12 19"></polyline>
+                </svg>
+              </span>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    threadsGrid.innerHTML = html;
+
+    // Attach Click Handlers
+    const createCard = document.getElementById('card-create-thread');
+    if (createCard) {
+      createCard.addEventListener('click', () => createNewThread());
+    }
+
+    document.querySelectorAll('.thread-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.thread-delete-btn')) return;
+        const threadId = card.getAttribute('data-id');
+        showWorkspaceView(threadId);
+      });
     });
+
+    document.querySelectorAll('.thread-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const idToDelete = btn.getAttribute('data-delete-id');
+        if (confirm("Are you sure you want to delete this research thread? All messages and sources in this thread will be removed.")) {
+          await deleteThread(idToDelete);
+        }
+      });
+    });
+  }
+
+  // Create a New Thread
+  async function createNewThread(initialTitle = 'New Research Thread') {
+    const threadId = 'th-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    try {
+      const res = await fetch('/api/threads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: threadId, title: initialTitle }),
+      });
+      if (res.ok) {
+        await showWorkspaceView(threadId);
+        return threadId;
+      }
+    } catch (e) {
+      console.error("Failed to create thread via API:", e);
+    }
+    await showWorkspaceView(threadId);
+    return threadId;
+  }
+
+  // Delete a Thread
+  async function deleteThread(id) {
+    try {
+      await fetch(`/api/threads/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error("Failed to delete thread via API:", e);
+    }
+
+    if (currentThreadId === id) {
+      currentThreadId = null;
+      localStorage.removeItem('agentic_active_thread_id');
+      await showThreadsView();
+    } else {
+      await renderThreadsGrid(threadsSearch ? threadsSearch.value.trim() : '');
+    }
+  }
+
+  // Update current thread stats in threads index
+  function updateCurrentThreadMetadata(lastText = '') {
+    if (!currentThreadId) return;
+    const threads = getStoredThreads();
+    const thread = threads.find(t => t.id === currentThreadId);
+    if (!thread) return;
+
+    thread.updatedAt = Date.now();
+    thread.messageCount = chatHistory.querySelectorAll('.user-message').length;
+    thread.sourceCount = allSources.length;
+    thread.kbCount = allKB.length;
+    if (lastText) {
+      thread.lastSnippet = lastText.slice(0, 140);
+    }
+    // If title is default, use first user query as title
+    if (thread.title === 'New Research Thread' || thread.title === 'Untitled Thread') {
+      const firstUserMsg = chatHistory.querySelector('.user-message');
+      if (firstUserMsg && firstUserMsg.textContent) {
+        thread.title = firstUserMsg.textContent.slice(0, 48);
+        if (currentThreadTitle) currentThreadTitle.textContent = thread.title;
+        if (navWorkspaceLabel) navWorkspaceLabel.textContent = thread.title.length > 18 ? thread.title.slice(0, 18) + '...' : thread.title;
+      }
+    }
+
+    saveStoredThreads(threads);
+  }
+
+  // ==========================================
+  // EVENT LISTENERS & NAVIGATION
+  // ==========================================
+
+  // Nav Tabs
+  navBtnThreads.addEventListener('click', showThreadsView);
+  navBtnWorkspace.addEventListener('click', () => {
+    if (currentThreadId) {
+      showWorkspaceView(currentThreadId);
+    } else {
+      const threads = getStoredThreads();
+      if (threads.length > 0) {
+        showWorkspaceView(threads[0].id);
+      } else {
+        createNewThread();
+      }
+    }
   });
 
-  // Tab Switching
+  // New Thread Buttons
+  btnNewThreadTop.addEventListener('click', () => createNewThread());
+  if (btnNewThreadHero) btnNewThreadHero.addEventListener('click', () => createNewThread());
+  if (btnNewThreadWorkspace) btnNewThreadWorkspace.addEventListener('click', () => createNewThread());
+  btnBackToThreads.addEventListener('click', showThreadsView);
+
+  // Search Filter
+  if (threadsSearch) {
+    threadsSearch.addEventListener('input', (e) => {
+      renderThreadsGrid(e.target.value.trim());
+    });
+  }
+
+  // Clear Chat in Thread
+  if (btnClearChat) {
+    btnClearChat.addEventListener('click', () => {
+      if (confirm("Clear all messages and vault sources for this thread?")) {
+        chatHistory.innerHTML = '';
+        allSources = [];
+        allKB = [];
+        traceSteps = [];
+        renderSources();
+        renderKB();
+        renderTrace();
+        saveThreadData(currentThreadId);
+        updateCurrentThreadMetadata('Cleared thread.');
+      }
+    });
+  }
+
+  // Tab Switching inside Vault
   document.querySelectorAll('.vault-tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.vault-tab-btn').forEach(b => b.classList.remove('active'));
@@ -189,10 +684,10 @@
     }
   });
 
-
   btnClearTrace.addEventListener('click', () => {
     traceSteps = [];
     renderTrace();
+    saveThreadData(currentThreadId);
   });
 
   // Filter sources
@@ -224,7 +719,7 @@
       alert("Knowledge Base is currently empty.");
       return;
     }
-    let mdText = `# Knowledge Base Export\nGenerated: ${new Date().toLocaleString()}\n\n`;
+    let mdText = `# Knowledge Base Export\nGenerated: ${new Date().toLocaleString()}\nThread: ${currentThreadId || 'default'}\n\n`;
     allKB.forEach((item, idx) => {
       mdText += `## ${idx + 1}. [${item.title}](${item.sourceUrl})\n`;
       mdText += `- **Category:** ${item.category}\n`;
@@ -265,6 +760,7 @@
     };
     traceSteps.unshift(step);
     renderTrace();
+    saveThreadData(currentThreadId);
   }
 
   function renderTrace() {
@@ -302,7 +798,7 @@
     }).join('');
   }
 
-  // Helper to categorize sources when user adds them to Knowledge Base
+  // Categorize sources when added to KB
   function categorizeSource(title, content) {
     const text = ((title || '') + ' ' + (content || '')).toLowerCase();
     if (text.includes("course") || text.includes("specialization") || text.includes("curriculum") || text.includes("syllabus") || text.includes("certification")) {
@@ -336,7 +832,6 @@
   }
 
   function updateAddToKbButton() {
-    // Valid selected are sources that are NOT in KB and NOT explicitly unchecked
     const validSelected = allSources.filter(s => !allKB.some(k => k.sourceUrl === s.url) && !unselectedSourceUrls.has(s.url));
     if (selectedKbCount) selectedKbCount.textContent = validSelected.length;
     if (btnAddToKb) {
@@ -367,7 +862,6 @@
 
     sourcesList.innerHTML = itemsToRender.map((s, idx) => {
       const inKB = allKB.some(k => k.sourceUrl === s.url);
-      // By default checked if not in KB and not unselected
       const isChecked = inKB || !unselectedSourceUrls.has(s.url);
 
       return `
@@ -440,6 +934,8 @@
       updateAddToKbButton();
       renderKB();
       renderSources();
+      saveThreadData(currentThreadId);
+      updateCurrentThreadMetadata();
 
       tabKbCount.classList.add('tab-badge-highlight');
       setTimeout(() => tabKbCount.classList.remove('tab-badge-highlight'), 1000);
@@ -485,11 +981,18 @@
     }).join('');
   }
 
-  // Chat Submission Handler
+  // ==========================================
+  // CHAT EXECUTION & STREAMING HANDLER
+  // ==========================================
+
   chatForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const query = chatInput.value.trim();
     if (!query) return;
+
+    if (!currentThreadId) {
+      currentThreadId = createNewThread(query.slice(0, 48));
+    }
 
     // Reset input
     chatInput.value = '';
@@ -550,9 +1053,14 @@
     let activeRoundDiv = null;
     let currentRoundNum = 1;
 
-    // Start SSE Stream
+    // Save user message immediately to current thread
+    saveThreadData(currentThreadId);
+    updateCurrentThreadMetadata(query);
+
+    // Start SSE Stream with threadId
     if (activeEventSource) activeEventSource.close();
-    activeEventSource = new EventSource('/api/stream?input=' + encodeURIComponent(query));
+    const streamUrl = `/api/stream?input=${encodeURIComponent(query)}&threadId=${encodeURIComponent(currentThreadId)}`;
+    activeEventSource = new EventSource(streamUrl);
 
     activeEventSource.onmessage = (event) => {
       try {
@@ -585,7 +1093,6 @@
         else if (data.type === 'query_planned') {
           roundBadge.textContent = `Loop ${data.iteration}/3`;
 
-          // Append Round Node
           activeRoundDiv = document.createElement('div');
           activeRoundDiv.className = 'round-node';
           activeRoundDiv.id = `round-${agentMsgId}-${data.iteration}`;
@@ -602,7 +1109,6 @@
         }
 
         else if (data.type === 'sources_updated') {
-          // Update global sources (manual addition to KB)
           const existingUrls = new Set(allSources.map(s => s.url));
           (data.newSources || []).forEach(ns => {
             if (!existingUrls.has(ns.url)) {
@@ -611,7 +1117,6 @@
           });
           renderSources();
 
-          // Populate mini chips in chat
           const tray = document.getElementById(`tray-${agentMsgId}-${data.iteration}`);
           if (tray) {
             tray.innerHTML = (data.newSources || []).map(s => `
@@ -658,6 +1163,10 @@
           }
 
           logTrace('synthesizeReport', `Final synthesis complete (${data.sources.length} sources, ${data.knowledgeBase.length} KB cards)`);
+
+          // Persist completed state to this thread
+          saveThreadData(currentThreadId);
+          updateCurrentThreadMetadata(data.finalReport || query);
           cleanup();
         }
 
@@ -672,6 +1181,8 @@
       if (!statusText.textContent.includes('Completed')) {
         statusText.textContent = "Stream connection completed or closed.";
       }
+      saveThreadData(currentThreadId);
+      updateCurrentThreadMetadata();
       cleanup();
     };
 
@@ -683,6 +1194,22 @@
       chatInput.disabled = false;
       btnSubmit.disabled = false;
       chatInput.focus();
+    }
+  });
+
+  // ==========================================
+  // INITIALIZATION ON PAGE LOAD
+  // ==========================================
+  window.addEventListener('DOMContentLoaded', async () => {
+    const threads = await getStoredThreads();
+    const savedActiveThreadId = localStorage.getItem('agentic_active_thread_id');
+
+    if (threads.length > 0 && savedActiveThreadId && threads.some(t => t.id === savedActiveThreadId)) {
+      // If user had an active thread open, restore that thread directly
+      await showWorkspaceView(savedActiveThreadId);
+    } else {
+      // Otherwise, show the Initial Threads Hub listing all thread cards
+      await showThreadsView();
     }
   });
 </script>
