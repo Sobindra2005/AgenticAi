@@ -129,7 +129,7 @@ export const App: React.FC<AppProps> = ({
       desc,
       time: timeStr || new Date().toLocaleTimeString(),
     };
-    setTraces((prev) => [newStep, ...prev]);
+    setTraces((prev) => [...prev, newStep]);
   };
 
   // Helper to fetch all threads from DB

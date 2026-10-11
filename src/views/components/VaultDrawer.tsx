@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { SourceItem, KnowledgeBaseEntry } from "../../graphs/state.js";
 
 export interface TraceStep {
@@ -43,6 +43,14 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
     new Set()
   );
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const traceListRef = useRef<HTMLDivElement>(null);
+
+  // Always by default scroll trace to latest (bottom)
+  useEffect(() => {
+    if (activeTab === "trace" && traceListRef.current) {
+      traceListRef.current.scrollTop = traceListRef.current.scrollHeight;
+    }
+  }, [traces, activeTab]);
 
   const existingKbUrls = new Set(kb.map((k) => k.sourceUrl));
 
@@ -486,6 +494,7 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
             </div>
             <div
               id="trace-list"
+              ref={traceListRef}
               style={{
                 display: "flex",
                 flexDirection: "column",

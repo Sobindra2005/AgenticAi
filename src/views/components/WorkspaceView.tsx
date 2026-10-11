@@ -66,15 +66,67 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   onClearTraces,
 }) => {
   const [inputText, setInputText] = useState("");
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
+  const isAutoScrollEnabled = useRef(true);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll chat history when messages change
-  useEffect(() => {
+  // Scroll to bottom helper
+  const scrollToBottom = (smooth = false) => {
     if (chatHistoryRef.current) {
-      chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+      chatHistoryRef.current.scrollTo({
+        top: chatHistoryRef.current.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
+      });
+      isAutoScrollEnabled.current = true;
+      setShowScrollBottom(false);
+      setHasNewMessagesBelow(false);
     }
-  }, [messages]);
+  };
+
+  // Detect whether user is at bottom or manually scrolled up
+  const handleScroll = () => {
+    if (!chatHistoryRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatHistoryRef.current;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 60;
+    isAutoScrollEnabled.current = isAtBottom;
+    if (isAtBottom) {
+      setShowScrollBottom(false);
+      setHasNewMessagesBelow(false);
+    } else {
+      setShowScrollBottom(true);
+    }
+  };
+
+  // Auto-scroll when messages update, respecting manual scroll-up
+  useEffect(() => {
+    if (isAutoScrollEnabled.current) {
+      if (chatHistoryRef.current) {
+        chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+      }
+      setShowScrollBottom(false);
+      setHasNewMessagesBelow(false);
+    } else {
+      setShowScrollBottom(true);
+      if (isSubmitting) {
+        setHasNewMessagesBelow(true);
+      }
+    }
+  }, [messages, isSubmitting]);
+
+  // Initial scroll when switching active thread
+  useEffect(() => {
+    isAutoScrollEnabled.current = true;
+    setShowScrollBottom(false);
+    setHasNewMessagesBelow(false);
+    const timer = setTimeout(() => {
+      if (chatHistoryRef.current) {
+        chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [activeThreadId]);
 
   const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value);
@@ -97,6 +149,12 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     if (textareaRef.current) {
       textareaRef.current.style.height = "48px";
     }
+    isAutoScrollEnabled.current = true;
+    setShowScrollBottom(false);
+    setHasNewMessagesBelow(false);
+    setTimeout(() => {
+      scrollToBottom(true);
+    }, 50);
     onSubmitQuery(query);
   };
 
@@ -175,7 +233,12 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
       <section className="workspace">
         {/* Left Panel: Chat & Research Execution Feed */}
         <section className="panel chat-panel">
-          <div id="chat-history" className="chat-history" ref={chatHistoryRef}>
+          <div
+            id="chat-history"
+            className="chat-history"
+            ref={chatHistoryRef}
+            onScroll={handleScroll}
+          >
             {messages.length === 0 && (
               <div
                 style={{
@@ -317,6 +380,34 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
               );
             })}
           </div>
+
+          {/* Scroll to latest floating pill */}
+          {showScrollBottom && (
+            <button
+              id="btn-scroll-latest"
+              type="button"
+              className="btn-scroll-latest"
+              onClick={() => scrollToBottom(true)}
+              title="Scroll to latest messages"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <polyline points="19 12 12 19 5 12"></polyline>
+              </svg>
+              <span>
+                {hasNewMessagesBelow ? "New messages below ↓" : "Scroll to latest"}
+              </span>
+            </button>
+          )}
 
           {/* Prompt Composer */}
           <form id="chat-form" className="chat-input-bar" onSubmit={handleSubmit}>
