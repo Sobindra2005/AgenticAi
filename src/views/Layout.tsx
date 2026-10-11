@@ -19,10 +19,11 @@ export const Layout: React.FC<LayoutProps> = ({
         <title>{title}</title>
         <link rel="stylesheet" href="/styles.css" />
         <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
       </head>
       <body>
         <main className="shell">
-          <div id="root">{children}</div>
+          <div id="root" >{children}</div>
         </main>
         {initialData && (
           <script

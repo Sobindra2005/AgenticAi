@@ -226,7 +226,10 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
                 display: "flex",
                 flexDirection: "column",
                 gap: "10px",
+                flex: 1,
+                minHeight: 0,
                 overflowY: "auto",
+                paddingRight: "4px",
               }}
             >
               {filteredSources.length === 0 ? (
@@ -401,7 +404,10 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
                 display: "flex",
                 flexDirection: "column",
                 gap: "10px",
+                flex: 1,
+                minHeight: 0,
                 overflowY: "auto",
+                paddingRight: "4px",
               }}
             >
               {kb.length === 0 ? (
@@ -484,8 +490,10 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
                 display: "flex",
                 flexDirection: "column",
                 gap: "2px",
+                flex: 1,
+                minHeight: 0,
                 overflowY: "auto",
-                padding: "6px 0",
+                padding: "6px 4px 6px 0",
               }}
             >
               {traces.length === 0 ? (

@@ -101,16 +101,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   };
 
   return (
-    <section
-      id="workspace-view"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        flex: 1,
-        minHeight: 0,
-        gap: "8px",
-      }}
-    >
+    <section id="workspace-view" className="workspace-view">
       {/* Workspace Top Sub-bar */}
       <div className="workspace-topbar">
         <div className="workspace-thread-info">
