@@ -1,4 +1,5 @@
-import { Annotation } from "@langchain/langgraph";
+import { BaseMessage } from "@langchain/core/messages";
+import { Annotation, messagesStateReducer } from "@langchain/langgraph";
 
 export interface SourceItem {
   id: string;
@@ -26,7 +27,33 @@ export interface EvaluationResult {
   nextQuery?: string;
 }
 
+export type RoutingDecision =
+  | "DIRECT_CONVERSATION"
+  | "ANSWER_FROM_KB"
+  | "SEARCH_KNOWLEDGE_GAP"
+  | "NEW_TOPIC_RESEARCH";
+
 export const ResearchAnnotation = Annotation.Root({
+  // Built-in LangGraph message history reducer
+  messages: Annotation<BaseMessage[]>({
+    reducer: messagesStateReducer,
+    default: () => [],
+  }),
+  // Optional: Compact 3-line rolling summary of older conversation
+  conversationSummary: Annotation<string>({
+    reducer: (_, next) => next,
+    default: () => "",
+  }),
+  // Intent & Knowledge Base coverage routing decision
+  route: Annotation<RoutingDecision>({
+    reducer: (_, next) => next,
+    default: () => "NEW_TOPIC_RESEARCH",
+  }),
+  // Explanation of the routing decision
+  routingReason: Annotation<string>({
+    reducer: (_, next) => next,
+    default: () => "",
+  }),
   // Initial user task or topic to research
   task: Annotation<string>,
 
@@ -45,22 +72,29 @@ export const ResearchAnnotation = Annotation.Root({
   // Current active search query
   currentQuery: Annotation<string>,
 
-  // History of all executed queries
+  // History of all executed queries for the active research task
   queriesHistory: Annotation<string[]>({
-    reducer: (prev, next) => Array.from(new Set([...prev, ...next])),
+    reducer: (prev, next) => {
+      if (Array.isArray(next) && next.length === 0) return [];
+      return Array.from(new Set([...(prev || []), ...(next || [])]));
+    },
     default: () => [],
   }),
 
   // Deduplicated accumulated list of sources
   sources: Annotation<SourceItem[]>({
     reducer: (prev, next) => {
+      // If node returns an explicit empty array, reset sources for a new research task
+      if (Array.isArray(next) && next.length === 0) {
+        return [];
+      }
       const map = new Map<string, SourceItem>();
       // Keep existing sources
-      for (const s of prev) {
+      for (const s of prev || []) {
         map.set(s.url, { ...s, isNew: false });
       }
       // Add or update with new sources
-      for (const s of next) {
+      for (const s of next || []) {
         if (!map.has(s.url)) {
           map.set(s.url, { ...s, isNew: true });
         }

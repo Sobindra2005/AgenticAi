@@ -22,6 +22,15 @@ export const getLocalLLm = (temperature = 0.6) => {
 };
 
 /**
+ * Creates a structured output LLM runnable using a Zod schema.
+ * Enforces native schema constraints and automatic parsing.
+ */
+export const withLLMStructuredOutput = (schema: any, temperature = 0.3) => {
+    const localModel = getLocalLLm(temperature);
+    return localModel.withStructuredOutput(schema);
+};
+
+/**
  * Extracts <think>...</think> reasoning blocks from DeepSeek-R1 output
  * and separates them from the actual content.
  */

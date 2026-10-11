@@ -31,6 +31,21 @@ export const shouldContinue = (state: ResearchState): "synthesizeReport" | "sear
     return "searchTavily";
 };
 
+/**
+ * Cognitive Intent & Knowledge Router:
+ * - If DIRECT_CONVERSATION or ANSWER_FROM_KB: Bypasses web search, routes directly to synthesizeReport.
+ * - If SEARCH_KNOWLEDGE_GAP or NEW_TOPIC_RESEARCH: Routes to searchTavily to retrieve live web data.
+ */
+export const routeAfterPlanning = (state: ResearchState): "synthesizeReport" | "searchTavily" => {
+    if (state.route === "DIRECT_CONVERSATION" || state.route === "ANSWER_FROM_KB") {
+        console.log(`[Router] No web search needed (${state.route}). Routing directly to synthesizeReport!`);
+        return "synthesizeReport";
+    }
+
+    console.log(`[Router] Web search needed (${state.route}). Routing to searchTavily with query: "${state.currentQuery}"`);
+    return "searchTavily";
+};
+
 // Build and compile the LangGraph workflow with PostgreSQL checkpointer
 export const researchGraph = new StateGraph(ResearchAnnotation)
     .addNode("planQuery", planQueryNode)
@@ -38,7 +53,10 @@ export const researchGraph = new StateGraph(ResearchAnnotation)
     .addNode("evaluateSufficiency", evaluateSufficiencyNode)
     .addNode("synthesizeReport", synthesizeReportNode)
     .addEdge(START, "planQuery")
-    .addEdge("planQuery", "searchTavily")
+    .addConditionalEdges("planQuery", routeAfterPlanning, {
+        synthesizeReport: "synthesizeReport",
+        searchTavily: "searchTavily",
+    })
     .addEdge("searchTavily", "evaluateSufficiency")
     .addConditionalEdges("evaluateSufficiency", shouldContinue, {
         synthesizeReport: "synthesizeReport",

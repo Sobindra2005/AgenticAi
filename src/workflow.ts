@@ -1,3 +1,4 @@
+import { HumanMessage } from "@langchain/core/messages";
 import { researchGraph, SourceItem, KnowledgeBaseEntry } from "./graphs/index.js";
 import { ThreadService } from "./services/thread.service.js";
 
@@ -42,7 +43,36 @@ export async function* streamResearchWorkflow(
     }
   }
 
-  const effectiveThreadId = threadId;
+  const effectiveThreadId = threadId || `adhoc-${Date.now()}`;
+
+  // Checkpointer debug: inspect what PostgreSQL restored for this thread
+  try {
+    const existingState = await researchGraph.getState({
+      configurable: { thread_id: effectiveThreadId },
+    });
+    const hasPriorState = Boolean(
+      existingState?.values && Object.keys(existingState.values).length > 0
+    );
+    console.log(`\n============================================================`);
+    console.log(`[Checkpointer Debug] Thread ID: "${effectiveThreadId}"`);
+    console.log(`[Checkpointer Debug] Has prior Postgres checkpoint? ${hasPriorState}`);
+    if (hasPriorState) {
+      const vals = existingState.values as any;
+      console.log(`[Checkpointer Debug]   - Restored Sources count: ${vals.sources?.length ?? 0}`);
+      console.log(`[Checkpointer Debug]   - Restored KB cards count: ${vals.knowledgeBase?.length ?? 0}`);
+      console.log(`[Checkpointer Debug]   - Restored Messages count: ${vals.messages?.length ?? 0}`);
+      if (vals.conversationSummary) {
+        console.log(`[Checkpointer Debug]   - Restored Thread Summary: "${vals.conversationSummary}"`);
+      }
+      console.log(`[Checkpointer Debug]   - Restored Queries History:`, vals.queriesHistory ?? []);
+      console.log(`[Checkpointer Debug]   - Previous Task: "${vals.task ?? ""}"`);
+    } else {
+      console.log(`[Checkpointer Debug]   - Fresh thread (no prior checkpoints found).`);
+    }
+    console.log(`============================================================\n`);
+  } catch (err) {
+    console.warn(`[Checkpointer Debug] Notice:`, (err as Error).message);
+  }
 
   // Initial event: planning started
   yield {
@@ -53,7 +83,7 @@ export async function* streamResearchWorkflow(
   };
 
   const eventStream = await researchGraph.stream(
-    { task, maxIterations },
+    { task, maxIterations, messages: [new HumanMessage(task)] },
     {
       streamMode: ["updates", "messages"],
       configurable: { thread_id: effectiveThreadId },
@@ -148,22 +178,39 @@ export async function* streamResearchWorkflow(
         if (!data || typeof data !== "object") continue;
 
         if (nodeName === "planQuery") {
-          const q = (data as any).currentQuery || task;
-          queriesHistory.push(q);
+          const route = (data as any).route;
+          const reason = (data as any).routingReason || "";
+          const q = (data as any).currentQuery;
 
-          yield {
-            type: "query_planned",
-            query: q,
-            iteration: 1,
-          };
+          if (route === "DIRECT_CONVERSATION" || route === "ANSWER_FROM_KB") {
+            const label = route === "ANSWER_FROM_KB"
+              ? `Answering directly from Knowledge Base in memory (${reason})`
+              : `Responding directly (${reason})`;
 
-          yield {
-            type: "step_start",
-            step: "searchTavily",
-            label: `Searching Tavily for: "${q}"`,
-            iteration: 1,
-            query: q,
-          };
+            yield {
+              type: "step_start",
+              step: "synthesizeReport",
+              label,
+              iteration: 1,
+            };
+          } else {
+            const searchQ = q || task;
+            queriesHistory.push(searchQ);
+
+            yield {
+              type: "query_planned",
+              query: searchQ,
+              iteration: 1,
+            };
+
+            yield {
+              type: "step_start",
+              step: "searchTavily",
+              label: `Searching Tavily for: "${searchQ}"`,
+              iteration: 1,
+              query: searchQ,
+            };
+          }
         } else if (nodeName === "searchTavily") {
           accumulatedSources = (data as any).sources || [];
           const newSources = (data as any).newSourcesThisStep || [];
@@ -262,7 +309,7 @@ export async function runWorkflow(input: string, threadId?: string): Promise<Wor
 
   const effectiveThreadId = threadId || `adhoc-${Date.now()}`;
   const result = await researchGraph.invoke(
-    { task, maxIterations: 2 },
+    { task, maxIterations: 2, messages: [new HumanMessage(task)] },
     { configurable: { thread_id: effectiveThreadId } }
   );
 

@@ -1,102 +1,185 @@
-import { SystemMessage, HumanMessage } from "@langchain/core/messages";
+import { SystemMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
 import { RunnableConfig } from "@langchain/core/runnables";
-import { getLocalLLm, getTavily, extractThinkAndContent } from "../utils.js";
-import { ResearchState, SourceItem, KnowledgeBaseEntry } from "./state.js";
+import { z } from "zod";
+import { getLocalLLm, getTavily, extractThinkAndContent, withLLMStructuredOutput } from "../utils.js";
+import { ResearchState, SourceItem, KnowledgeBaseEntry, RoutingDecision } from "./state.js";
 
-function extractDomain(urlStr: string): string {
-    try {
-        const u = new URL(urlStr);
-        return u.hostname.replace(/^www\./, "");
-    } catch {
-        return "web";
-    }
-}
+export const routingDecisionSchema = z.object({
+    route: z.enum([
+        "DIRECT_CONVERSATION",
+        "ANSWER_FROM_KB",
+        "SEARCH_KNOWLEDGE_GAP",
+        "NEW_TOPIC_RESEARCH"
+    ]).describe("The cognitive routing decision based on conversation and knowledge coverage"),
+    searchQuery: z.string().nullable().optional().describe("Standalone rewritten search query (3-8 words) if web search is needed, or null if no search needed"),
+    reason: z.string().describe("1-2 sentence explanation of your decision")
+});
 
-function categorizeSource(title: string, content: string): KnowledgeBaseEntry["category"] {
-    const text = (title + " " + content).toLowerCase();
-    if (text.includes("course") || text.includes("specialization") || text.includes("curriculum") || text.includes("syllabus") || text.includes("certification")) {
-        return "Course";
-    }
-    if (text.includes("docs") || text.includes("documentation") || text.includes("api reference") || text.includes("manual")) {
-        return "Documentation";
-    }
-    if (text.includes("tutorial") || text.includes("guide") || text.includes("how to") || text.includes("step-by-step")) {
-        return "Tutorial";
-    }
-    if (text.includes("github.com") || text.includes("repository") || text.includes("framework")) {
-        return "Resource";
-    }
-    return "Article";
-}
+export type RoutingDecisionOutput = z.infer<typeof routingDecisionSchema>;
 
-function extractKeyTopics(title: string, content: string): string[] {
-    const combined = `${title} ${content}`.toLowerCase();
-    const commonTopics = [
-        "langgraph", "langchain", "agentic ai", "multi-agent", "rag", "vector database",
-        "deep learning", "machine learning", "nlp", "llm", "transformers", "pytorch",
-        "python", "prompt engineering", "fine-tuning", "autonomous agents", "evaluations",
-        "state graph", "human-in-the-loop", "memory", "tools", "fastapi", "typescript"
-    ];
-    const found = commonTopics.filter(topic => combined.includes(topic));
-    if (found.length === 0) {
-        // Fallback: simple words from title
-        return title.split(/\s+/).filter(w => w.length > 4).slice(0, 4);
-    }
-    return found.slice(0, 5);
-}
+export const sufficiencyEvaluationSchema = z.object({
+    isSufficient: z.boolean().describe("Whether the collected sources are sufficient to fully answer the user query"),
+    reason: z.string().describe("1-2 concise sentences explaining why sources are sufficient or what specific information is missing"),
+    nextQuery: z.string().nullable().optional().describe("If isSufficient is false, provide a single refined search query (3-7 words) for the missing detail. If isSufficient is true, null")
+});
+
+export type SufficiencyEvaluationOutput = z.infer<typeof sufficiencyEvaluationSchema>;
+
+export const conversationSummarySchema = z.object({
+    summary: z.string().describe("Concise 2-sentence summary of the main topics, queries, and conclusions explored so far in this conversation")
+});
+
+export type ConversationSummaryOutput = z.infer<typeof conversationSummarySchema>;
 
 /**
- * 1. Planning Node:
- * Formulates the initial search query based on user task.
+ * 1. Cognitive Planning & Intent/Coverage Router Node:
+ * Correlates user prompt, recent conversation, and existing Knowledge Base / sources
+ * to decide whether web search is even needed, or if an answer can be delivered
+ * directly from memory or previous conversation.
  */
 export const planQueryNode = async (state: ResearchState, config?: RunnableConfig): Promise<Partial<ResearchState>> => {
-    console.log("--- [NODE: planQueryNode] Starting Planning ---");
+    console.log("\n--- [NODE: planQueryNode] Analyzing Intent & Knowledge Coverage ---");
 
-    const llm = getLocalLLm(0.5);
+    const existingSources = state.sources || [];
+    
+    // Compact summary of existing sources in state (first 6 sources, title + excerpt)
+    const existingKnowledgeSummary = existingSources.slice(0, 6).map((s, idx) =>
+        `[Source ${idx + 1}] Title: "${s.title}"\nURL: ${s.url}\nExcerpt: ${s.content.slice(0, 160)}...`
+    ).join("\n\n");
+
+    // Sliding window of recent conversation messages (last 3 messages)
+    const recentMessages = (state.messages || []).slice(-3);
+    const summaryPrefix = state.conversationSummary
+        ? `Prior Discussion Summary:\n"${state.conversationSummary}"\n\n`
+        : "";
+    const chatContext = recentMessages.length > 0
+        ? recentMessages.map(m => `${m.getType() === "human" ? "User" : "Assistant"}: ${m.content.slice(0, 250)}`).join("\n")
+        : "(No prior messages in thread)";
+    const fullConversationContext = `${summaryPrefix}Recent Messages:\n${chatContext}`;
+
+    const llm = getLocalLLm(0.3); // Low temperature for crisp, accurate routing
+
+    // Active Topic History from previous graph cycles
+    const activeTopics = (state.queriesHistory || []).join(" -> ") || "(None yet)";
 
     const systemPrompt = new SystemMessage(`
-You are an expert AI search query planner.
-Your goal is to formulate a single, concise, keyword-rich search query for Tavily to find the best courses, tutorials, and documentation for the user's inquiry.
-CRITICAL FORMAT:
-Output strictly:
-QUERY: <concise 3-7 word search query>
+You are the Cognitive Intent, Coreference Resolution & Knowledge Coverage Router for an intelligent AI research assistant.
+Your job is to analyze the user's latest request in correlation with the active research topic, conversation history, and existing Knowledge Base / sources.
 
-Example:
-QUERY: best deep learning specialization courses 2025
-    `.trim());
+TASK 1: COREFERENCE RESOLUTION & QUERY REFORMULATION
+Natural user prompts often omit the subject or use implicit references (e.g., "how to apply", "give me a stepwise guide", "what are the cloud tools", "tell me more about this", "are there any limits?", "compare with alternatives").
+If the user's prompt is a follow-up or drill-down related to the ongoing conversation or active topic:
+- You MUST resolve all implicit references and pronouns organically.
+- Formulate a completely self-contained, STANDALONE search query that combines the core topic entity with the user's specific request.
+- Example: If the active topic is "GitHub Student Developer Pack" and the user asks "how do I sign up and get verified?", the searchQuery MUST be "GitHub Student Developer Pack application verification steps", NOT just "how do I sign up".
 
-    const userPrompt = new HumanMessage(`User Research Task: "${state.task}"`);
+TASK 2: INTENT & KNOWLEDGE COVERAGE ROUTING
+Determine the single best route:
 
-    const response = await llm.invoke([systemPrompt, userPrompt], config);
-    const rawText = response.content.toString();
-    const { thinking, content } = extractThinkAndContent(rawText);
+1. "DIRECT_CONVERSATION":
+   - The user is greeting, giving feedback ("thanks", "great"), asking to format/translate/reorganize previous output ("put in a table", "summarize in 3 bullets"), or asking purely conversational questions that require no web search.
+   - searchQuery: null
 
-    // Try explicit QUERY: tag first
-    const queryMatch = content.match(/QUERY:\s*([^\n\r]+)/i);
-    let query = "";
-    if (queryMatch) {
-        query = queryMatch[1].trim();
-    } else {
-        // Fallback: take first non-empty line
-        const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
-        query = lines[0] || state.task;
+2. "ANSWER_FROM_KB":
+   - The user is asking a factual question whose answer is ALREADY CLEARLY COVERED in the "Existing Knowledge Base / Sources in Memory" below.
+   - searchQuery: null
+
+3. "SEARCH_KNOWLEDGE_GAP":
+   - The user is asking a follow-up, drill-down, or comparison related to the active topic, but the required information is MISSING from existing sources in memory.
+   - searchQuery: Standalone rewritten search query (3-8 words) combining the topic with the missing aspect.
+
+4. "NEW_TOPIC_RESEARCH":
+   - The user has switched to a brand new, unrelated research subject with zero connection to the prior conversation.
+   - searchQuery: Standalone search query (3-8 words) for the new topic.
+
+FEW-SHOT EXAMPLES:
+- User: "Research GitHub Student Developer Pack"
+  -> { "route": "NEW_TOPIC_RESEARCH", "searchQuery": "GitHub Student Developer Pack benefits tools", "reason": "User started a new topic research." }
+
+- Context: Active topic is "GitHub Student Developer Pack". Sources do NOT have step-by-step sign-up steps.
+  User: "how do i sign up and what documents do i need"
+  -> { "route": "SEARCH_KNOWLEDGE_GAP", "searchQuery": "GitHub Student Developer Pack student verification application steps documents", "reason": "Follow-up question on registration requirements not covered in existing sources." }
+
+- Context: Active topic is "Docker container optimization". Sources already explain multi-stage builds.
+  User: "What was the benefit of multi-stage builds again?"
+  -> { "route": "ANSWER_FROM_KB", "searchQuery": null, "reason": "Multi-stage build benefits are already covered in source 2." }
+
+- Context: Previous response was a long report.
+  User: "can you present that as a markdown comparison table?"
+  -> { "route": "DIRECT_CONVERSATION", "searchQuery": null, "reason": "Formatting request on prior content, no search needed." }
+
+- Context: Active topic was "PostgreSQL indexing".
+  User: "What are the key differences between React and Svelte?"
+  -> { "route": "NEW_TOPIC_RESEARCH", "searchQuery": "React vs Svelte comparison differences", "reason": "User completely switched to a new topic." }
+
+CRITICAL OUTPUT FORMAT:
+You MUST output valid JSON with this exact schema:
+{
+  "route": "DIRECT_CONVERSATION" | "ANSWER_FROM_KB" | "SEARCH_KNOWLEDGE_GAP" | "NEW_TOPIC_RESEARCH",
+  "searchQuery": string | null,
+  "reason": "1-2 sentence explanation of your decision"
+}
+
+Do not wrap in Markdown codeblocks if possible, or use standard \`\`\`json.
+`.trim());
+
+    const userPrompt = new HumanMessage(`
+User Prompt: "${state.task}"
+
+Active Research Topics / Prior Queries:
+${activeTopics}
+
+Recent Conversation Context:
+${fullConversationContext}
+
+Existing Knowledge Base / Sources in Memory (${existingSources.length} sources):
+${existingKnowledgeSummary || "(Memory is currently empty - no sources stored yet)"}
+`.trim());
+
+    const structuredRouter = withLLMStructuredOutput(routingDecisionSchema, 0.2);
+
+    let route: RoutingDecision = "NEW_TOPIC_RESEARCH";
+    let query: string = state.task;
+    let reason = "Default to fresh research";
+
+    try {
+        const decision = await structuredRouter.invoke([systemPrompt, userPrompt], { ...config, timeout: 30_000 });
+        if (decision.route) route = decision.route;
+        if (decision.reason) reason = decision.reason;
+        if (decision.searchQuery) query = decision.searchQuery.trim();
+    } catch (err) {
+        console.warn("[planQueryNode] Structured output routing failed, falling back to research:", (err as Error).message);
+        route = existingSources.length > 0 ? "SEARCH_KNOWLEDGE_GAP" : "NEW_TOPIC_RESEARCH";
+        query = state.task;
+        reason = "Fallback router";
     }
 
-    // Clean surrounding quotes and prefixes
+    // Clean surrounding quotes and prefixes from LLM generated query
     query = query.replace(/^["']|["']$/g, "").replace(/^QUERY:\s*/i, "").trim();
+    if (query.length > 120) query = query.slice(0, 100);
 
-    // Guardrail: if the query is overly long (e.g. conversational paragraph), trim or fallback
-    if (query.length > 120 || query.includes("However") || query.includes("If you're")) {
-        query = state.task.slice(0, 100);
+    console.log(`[planQueryNode] Route Decided: ${route}`);
+    console.log(`[planQueryNode] Reason: "${reason}"`);
+    if (route === "SEARCH_KNOWLEDGE_GAP" || route === "NEW_TOPIC_RESEARCH") {
+        console.log(`[planQueryNode] Search Query: "${query}"`);
+    } else {
+        console.log(`[planQueryNode] No search needed. Answering directly!`);
     }
 
-    console.log(`[planQueryNode] Planned Query: "${query}"`);
+    // When starting a brand-new topic, clear active sources buffer so old sources don't pollute
+    const resetSources = route === "NEW_TOPIC_RESEARCH" ? [] : undefined;
 
     return {
-        currentQuery: query,
-        queriesHistory: [query],
+        route,
+        routingReason: reason,
+        currentQuery: (route === "DIRECT_CONVERSATION" || route === "ANSWER_FROM_KB") ? "" : query,
+        ...(query && route !== "DIRECT_CONVERSATION" && route !== "ANSWER_FROM_KB"
+            ? { queriesHistory: [query] }
+            : {}),
+        ...(resetSources !== undefined ? { sources: resetSources } : {}),
         iteration: 1,
-        thinkContent: thinking ? `[Planning Round 1]\n${thinking}` : ""
+        evaluation: { sufficient: false, reason: "" },
+        thinkContent: `[Cognitive Router: ${route}]\n${reason}`
     };
 };
 
@@ -108,7 +191,8 @@ export const searchTavilyNode = async (state: ResearchState): Promise<Partial<Re
     const query = state.currentQuery || state.task;
     const iteration = state.iteration || 1;
 
-    console.log(`--- [NODE: searchTavilyNode] Searching iteration ${iteration} for: "${query}" ---`);
+    const existingCount = state.sources?.length ?? 0;
+    console.log(`--- [NODE: searchTavilyNode] Searching iteration ${iteration} for: "${query}" (Already has ${existingCount} sources in state) ---`);
 
     const tavily = getTavily();
     let rawResults: any[] = [];
@@ -184,7 +268,7 @@ export const evaluateSufficiencyNode = async (state: ResearchState, config?: Run
         };
     }
 
-    const llm = getLocalLLm(0.4);
+    const structuredEvaluator = withLLMStructuredOutput(sufficiencyEvaluationSchema, 0.2);
 
     const sourcesSummary = sources.slice(0, 6).map((s, idx) =>
         `[${idx + 1}] "${s.title}" (${s.url})\nSummary: ${s.content.slice(0, 160)}...`
@@ -192,12 +276,11 @@ export const evaluateSufficiencyNode = async (state: ResearchState, config?: Run
 
     const systemPrompt = new SystemMessage(`
 You are an expert AI research evaluator.
-Your job is to decide if the currently collected sources are SUFFICIENT to fully answer the user's research request, or if another targeted web search is needed to gather missing details (such as detailed course curriculum, hands-on tutorials, prerequisites, or alternative platforms).
+Your job is to decide if the currently collected sources are SUFFICIENT to fully answer the user's research request, or if another targeted web search is needed to gather missing details (such as detailed steps, syllabus, technical limits, or alternatives).
 
-You MUST respond strictly using this format:
-DECISION: SUFFICIENT or INSUFFICIENT
-REASON: <1 to 2 concise sentences explaining why>
-NEXT_QUERY: <If INSUFFICIENT, provide a single refined search query. If SUFFICIENT, write NONE>
+Evaluate objectively:
+- If key aspects are already well covered in the collected sources, set isSufficient to true, with nextQuery as null.
+- If essential details are missing, set isSufficient to false and provide a refined standalone nextQuery (3-7 words).
     `.trim());
 
     const userPrompt = new HumanMessage(`
@@ -208,24 +291,20 @@ Sources collected so far (${sources.length}):
 ${sourcesSummary}
     `.trim());
 
-    const response = await llm.invoke([systemPrompt, userPrompt], config);
-    const rawText = response.content.toString();
-    const { thinking, content } = extractThinkAndContent(rawText);
+    let isSufficient = sources.length >= 4;
+    let reason = isSufficient ? "Sufficient comprehensive details gathered." : "Need deeper details.";
+    let nextQuery = "";
 
-    // Parse the output
-    const isSufficientMatch = content.match(/DECISION:\s*(SUFFICIENT|INSUFFICIENT)/i);
-    const reasonMatch = content.match(/REASON:\s*([^\n\r]+)/i);
-    const nextQueryMatch = content.match(/NEXT_QUERY:\s*([^\n\r]+)/i);
-
-    let isSufficient = isSufficientMatch ? isSufficientMatch[1].toUpperCase() === "SUFFICIENT" : (sources.length >= 4);
-    let reason = reasonMatch ? reasonMatch[1].trim() : (isSufficient ? "Sufficient comprehensive details gathered." : "Need deeper course syllabus and project details.");
-    let nextQuery = nextQueryMatch ? nextQueryMatch[1].trim() : "";
-
-    // If query was None or quotes, clean it
-    if (nextQuery.toUpperCase() === "NONE" || nextQuery.length < 3) {
-        nextQuery = "";
+    try {
+        const evalResult = await structuredEvaluator.invoke([systemPrompt, userPrompt], { ...config, timeout: 30_000 });
+        isSufficient = evalResult.isSufficient;
+        reason = evalResult.reason;
+        if (!isSufficient && evalResult.nextQuery) {
+            nextQuery = evalResult.nextQuery.replace(/^["']|["']$/g, "").trim();
+        }
+    } catch (err) {
+        console.warn("[evaluateSufficiencyNode] Structured evaluation failed, using heuristic fallback:", (err as Error).message);
     }
-    nextQuery = nextQuery.replace(/^["']|["']$/g, "").trim();
 
     if (!isSufficient && !nextQuery) {
         // Fallback next query if model didn't specify one
@@ -243,7 +322,7 @@ ${sourcesSummary}
                 sufficient: true,
                 reason,
             },
-            thinkContent: thinking ? `[Evaluation Round ${iteration}]\n${thinking}` : "",
+            thinkContent: `[Evaluation Round ${iteration}: SUFFICIENT]\n${reason}`,
         };
     } else {
         return {
@@ -255,7 +334,7 @@ ${sourcesSummary}
                 reason,
                 nextQuery,
             },
-            thinkContent: thinking ? `[Evaluation Round ${iteration}]\n${thinking}` : "",
+            thinkContent: `[Evaluation Round ${iteration}: INSUFFICIENT]\nReason: ${reason}\nNext Query: ${nextQuery}`,
         };
     }
 };
@@ -269,44 +348,97 @@ export const synthesizeReportNode = async (state: ResearchState, config?: Runnab
 
     const llm = getLocalLLm(0.6);
     const sources = state.sources || [];
+    const route = state.route || "NEW_TOPIC_RESEARCH";
+    console.log(`[synthesizeReportNode Debug] Synthesis mode for route: "${route}" (with ${sources.length} sources)`);
 
     const sourcesReferenceList = sources.map((s, idx) =>
         `[${idx + 1}] Title: ${s.title}\nURL: ${s.url}\nExcerpt: ${s.content.slice(0, 300)}`
     ).join("\n\n");
 
-    const systemPrompt = new SystemMessage(`
-You are a principal AI research analyst and educator.
-Your task is to synthesize all research findings into a comprehensive, beautifully structured guide answering the user's prompt.
+    const summaryPrefix = state.conversationSummary
+        ? `Long-term Thread Summary:\n"${state.conversationSummary}"\n\n`
+        : "";
+    const recentMessages = (state.messages || []).slice(-2);
+    const conversationContext = recentMessages.length > 0
+        ? summaryPrefix + recentMessages.map(m => `${m.getType() === "human" ? "User" : "Assistant"}: ${m.content.slice(0, 400)}`).join("\n\n")
+        : summaryPrefix;
+
+    let systemPrompt: SystemMessage;
+    let userPrompt: HumanMessage;
+
+    if (route === "DIRECT_CONVERSATION") {
+        systemPrompt = new SystemMessage(`
+You are a helpful and intelligent AI research assistant.
+Answer the user's current request directly using the recent conversation context.
+Format cleanly with Markdown (using tables, bullet points, or code blocks where requested).
+        `.trim());
+
+        userPrompt = new HumanMessage(`
+Recent Conversation Context:
+${conversationContext || "(No prior conversation)"}
+
+User Request: "${state.task}"
+        `.trim());
+    } else {
+        systemPrompt = new SystemMessage(`
+You are a principal AI research analyst.
+Your task is to synthesize verified research findings into a comprehensive, beautifully structured report responding directly to the user's prompt.
 
 GUIDELINES:
-1. Provide a clear, insightful executive summary.
-2. If looking for courses or learning materials, structure each recommendation clearly:
-   - Course/Resource Name & Platform
-   - Key Syllabus & What You'll Learn
-   - Prerequisites & Difficulty Level
-   - Hands-on Projects & Practical Takeaways
+1. Provide a clear, insightful executive summary answering the user's query directly.
+2. Structure the core points with logical sections, bullet points, and tables where applicable.
 3. ALWAYS cite your claims using bracketed numbers like [1], [2] matching the source numbers provided.
-4. Conclude with an actionable learning roadmap / next steps.
+4. Conclude with actionable takeaways, next steps, or a roadmap relevant to the user's query.
 5. Format with rich Markdown: headers (##, ###), bullet points, and tables where applicable.
-    `.trim());
+6. Strictly stick to verified information. Do not invent unrelated topics.
+        `.trim());
 
-    const userPrompt = new HumanMessage(`
-User Request: "${state.task}"
+        userPrompt = new HumanMessage(`
+${conversationContext ? "Previous Conversation Context:\n" + conversationContext + "\n\n" : ""}User Request: "${state.task}"
 
 Verified Research Sources:
-${sourcesReferenceList}
+${sourcesReferenceList || "(Answer based on knowledge base in memory)"}
 
 Synthesize a complete, definitive answer with numbered citations:
-    `.trim());
+        `.trim());
+    }
 
-    const response = await llm.invoke([systemPrompt, userPrompt], config);
+    const response = await llm.invoke([systemPrompt, userPrompt], { ...config, timeout: 30_000 });
     const rawText = response.content.toString();
     const { thinking, content } = extractThinkAndContent(rawText);
 
     console.log("[synthesizeReportNode] Report synthesis complete.");
 
+    // Append assistant response to messages for continuous conversational memory
+    const newAIMsg = new AIMessage(content);
+
+    // Update rolling conversationSummary when thread has 3 or more messages
+    let updatedSummary = state.conversationSummary || "";
+    const totalMsgCount = (state.messages?.length || 0) + 1;
+    if (totalMsgCount >= 3) {
+        try {
+            const summaryLlm = withLLMStructuredOutput(conversationSummarySchema, 0.2);
+            const historySample = [...(state.messages || []).slice(-4), newAIMsg]
+                .map(m => `${m.getType() === "human" ? "User" : "Assistant"}: ${m.content.slice(0, 200)}`)
+                .join("\n");
+
+            const sumPrompt = new SystemMessage(
+                "You are a conversation summarizer. Write a concise 2-sentence summary of the main topics, queries, and conclusions explored so far in this conversation. Do not invent details."
+            );
+            const sumRes = await summaryLlm.invoke([sumPrompt, new HumanMessage(historySample)], { timeout: 15_000 });
+            if (sumRes.summary && sumRes.summary.trim().length > 10) {
+                updatedSummary = sumRes.summary.trim();
+                console.log(`[synthesizeReportNode] Updated Thread Conversation Summary: "${updatedSummary}"`);
+            }
+        } catch (sumErr) {
+            console.warn("[synthesizeReportNode] Rolling summary update skipped:", (sumErr as Error).message);
+        }
+    }
+
     return {
         finalReport: content,
+        messages: [newAIMsg],
+        conversationSummary: updatedSummary,
         thinkContent: thinking ? `[Synthesis]\n${thinking}` : "",
     };
 };
