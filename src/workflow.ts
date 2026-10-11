@@ -3,8 +3,8 @@ import { researchGraph, SourceItem, KnowledgeBaseEntry } from "./graphs/index.js
 import { ThreadService } from "./services/thread.service.js";
 
 export type WorkflowEvent =
-  | { type: "step_start"; step: "planQuery" | "searchTavily" | "evaluateSufficiency" | "synthesizeReport"; label: string; iteration: number; query?: string }
-  | { type: "thinking_chunk"; chunk: string; step?: "planQuery" | "evaluateSufficiency" | "synthesizeReport" | string; iteration?: number }
+  | { type: "step_start"; step: "retrieveFromKB" | "planQuery" | "searchTavily" | "evaluateSufficiency" | "synthesizeReport" | string; label: string; iteration: number; query?: string }
+  | { type: "thinking_chunk"; chunk: string; step?: "retrieveFromKB" | "planQuery" | "evaluateSufficiency" | "synthesizeReport" | string; iteration?: number }
   | { type: "query_planned"; query: string; iteration: number }
   | { type: "sources_updated"; allSources: SourceItem[]; newSources: SourceItem[]; kbEntries?: KnowledgeBaseEntry[]; iteration: number; totalCount: number; newCount: number }
   | { type: "eval_decision"; sufficient: boolean; reason: string; nextQuery?: string; iteration: number }
@@ -74,11 +74,11 @@ export async function* streamResearchWorkflow(
     console.warn(`[Checkpointer Debug] Notice:`, (err as Error).message);
   }
 
-  // Initial event: planning started
+  // Initial event: retrieveFromKB started
   yield {
     type: "step_start",
-    step: "planQuery",
-    label: "Analyzing research task & planning search strategy...",
+    step: "retrieveFromKB",
+    label: "analyzing context...",
     iteration: 1,
   };
 
@@ -177,7 +177,23 @@ export async function* streamResearchWorkflow(
       for (const [nodeName, data] of Object.entries(updatesObj)) {
         if (!data || typeof data !== "object") continue;
 
-        if (nodeName === "planQuery") {
+        if (nodeName === "retrieveFromKB") {
+          const chunks = (data as any).relevantChunks || [];
+          if (chunks.length > 0) {
+            yield {
+              type: "thinking_chunk",
+              chunk: `Found ${chunks.length} semantically relevant excerpt(s) (Top relevance: ${(chunks[0].similarity * 100).toFixed(1)}%).\n`,
+              step: "retrieveFromKB",
+              iteration: 1,
+            };
+          }
+          yield {
+            type: "step_start",
+            step: "planQuery",
+            label: "Analyzing research task & planning search strategy...",
+            iteration: 1,
+          };
+        } else if (nodeName === "planQuery") {
           const route = (data as any).route;
           const reason = (data as any).routingReason || "";
           const q = (data as any).currentQuery;

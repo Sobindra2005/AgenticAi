@@ -57,7 +57,8 @@ export function extractThinkAndContent(text: string): { thinking: string; conten
 export const getTavily = () => {
     const tavily = new TavilySearch({
         maxResults: 5,
+        includeRawContent: true,
         tavilyApiKey: process.env.TAVILY_API_KEY
-    })
+    });
     return tavily;
-}
+};

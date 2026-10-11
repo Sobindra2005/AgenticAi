@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, bigint, integer, doublePrecision, jsonb, uuid, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, bigint, integer, doublePrecision, jsonb, uuid, timestamp, vector } from "drizzle-orm/pg-core";
 
 /**
  * 1. Threads Table:
@@ -83,6 +83,24 @@ export const traces = pgTable("traces", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+/**
+ * 6. Knowledge Chunks Table (RAG Vector Store):
+ * Stores vectorized source excerpts for cosine similarity search (pgvector nomic-embed-text).
+ */
+export const knowledgeChunks = pgTable("knowledge_chunks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  threadId: uuid("thread_id")
+    .notNull()
+    .references(() => threads.id, { onDelete: "cascade" }),
+  sourceId: uuid("source_id").references(() => sources.id, { onDelete: "cascade" }),
+  sourceUrl: text("source_url").notNull(),
+  sourceTitle: text("source_title").notNull(),
+  content: text("content").notNull(),
+  chunkIndex: integer("chunk_index").default(0).notNull(),
+  embedding: vector("embedding", { dimensions: 768 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Infer model types
 export type Thread = typeof threads.$inferSelect;
 export type NewThread = typeof threads.$inferInsert;
@@ -94,3 +112,5 @@ export type KnowledgeBase = typeof knowledgeBase.$inferSelect;
 export type NewKnowledgeBase = typeof knowledgeBase.$inferInsert;
 export type Trace = typeof traces.$inferSelect;
 export type NewTrace = typeof traces.$inferInsert;
+export type KnowledgeChunk = typeof knowledgeChunks.$inferSelect;
+export type NewKnowledgeChunk = typeof knowledgeChunks.$inferInsert;

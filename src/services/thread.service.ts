@@ -2,6 +2,7 @@ import { eq, desc, asc } from "drizzle-orm";
 import { db } from "../db/index.js";
 import * as models from "../models/index.js";
 import { SourceItem, KnowledgeBaseEntry } from "../graphs/state.js";
+import { syncKnowledgeBaseVectors } from "./rag.service.js";
 
 const isValidUUID = (id?: string): boolean =>
   typeof id === "string" &&
@@ -254,6 +255,42 @@ export const ThreadService = {
       })
       .where(eq(models.threads.id, threadId));
 
+    // 4. Vectorize and synchronize ONLY the sources in the Knowledge Base
+    const kbUrls = new Set(kbList.map((k) => k.sourceUrl));
+    const kbSourcesMap = new Map<string, SourceItem>();
+
+    for (const s of sourcesList) {
+      if (s.url && kbUrls.has(s.url) && s.content) {
+        kbSourcesMap.set(s.url, s);
+      }
+    }
+
+    // If any KB items were not in sourcesList, retrieve full content from DB sources
+    if (kbSourcesMap.size < kbUrls.size) {
+      const dbSources = await db
+        .select()
+        .from(models.sources)
+        .where(eq(models.sources.threadId, threadId));
+      for (const d of dbSources) {
+        if (d.url && kbUrls.has(d.url) && !kbSourcesMap.has(d.url) && d.content) {
+          kbSourcesMap.set(d.url, {
+            id: d.id,
+            url: d.url,
+            title: d.title,
+            content: d.content,
+            score: d.score ?? undefined,
+            iteration: d.iteration ?? 1,
+          });
+        }
+      }
+    }
+
+    try {
+      await syncKnowledgeBaseVectors(threadId, Array.from(kbSourcesMap.values()), kbUrls);
+    } catch (vErr) {
+      console.warn("[ThreadService.saveBatchAssets] Knowledge Base vector sync error:", (vErr as Error).message);
+    }
+
     return true;
   },
 
@@ -267,6 +304,7 @@ export const ThreadService = {
       db.delete(models.sources).where(eq(models.sources.threadId, threadId)),
       db.delete(models.knowledgeBase).where(eq(models.knowledgeBase.threadId, threadId)),
       db.delete(models.traces).where(eq(models.traces.threadId, threadId)),
+      db.delete(models.knowledgeChunks).where(eq(models.knowledgeChunks.threadId, threadId)),
       db
         .update(models.threads)
         .set({

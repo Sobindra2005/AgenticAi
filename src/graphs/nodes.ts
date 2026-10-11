@@ -3,6 +3,7 @@ import { RunnableConfig } from "@langchain/core/runnables";
 import { z } from "zod";
 import { getLocalLLm, getTavily, extractThinkAndContent, withLLMStructuredOutput } from "../utils.js";
 import { ResearchState, SourceItem, KnowledgeBaseEntry, RoutingDecision } from "./state.js";
+import { searchRelevantChunks, syncKnowledgeBaseVectors } from "../services/rag.service.js";
 
 export const routingDecisionSchema = z.object({
     route: z.enum([
@@ -32,8 +33,58 @@ export const conversationSummarySchema = z.object({
 export type ConversationSummaryOutput = z.infer<typeof conversationSummarySchema>;
 
 /**
+ * 0. Knowledge Base Retrieval Node (RAG via PostgreSQL pgvector & nomic-embed-text):
+ * Semantically searches ONLY the thread's curated Knowledge Base for relevant knowledge chunks.
+ * Raw search sources are not indexed until curated into the Knowledge Base.
+ */
+export const retrieveFromKBNode = async (
+    state: ResearchState,
+    config?: RunnableConfig
+): Promise<Partial<ResearchState>> => {
+    const threadId = config?.configurable?.thread_id as string | undefined;
+    console.log(`\n--- [NODE: retrieveFromKBNode] Querying pgvector Knowledge Base for thread: "${threadId || 'adhoc'}" ---`);
+
+    if (!threadId) {
+        console.log("[retrieveFromKBNode] No threadId provided in config, skipping Knowledge Base search.");
+        return { relevantChunks: [] };
+    }
+
+    try {
+        // Synchronize ONLY sources that are currently present in state.knowledgeBase
+        const kbEntries = state.knowledgeBase || [];
+        if (kbEntries.length > 0 && state.sources && state.sources.length > 0) {
+            const kbUrls = new Set(kbEntries.map(k => k.sourceUrl));
+            const kbSources = state.sources.filter(s => kbUrls.has(s.url) && s.content);
+            if (kbSources.length > 0) {
+                await syncKnowledgeBaseVectors(threadId, kbSources, kbUrls);
+            }
+        }
+
+        // Perform semantic similarity search across Knowledge Base chunks
+        const relevantChunks = await searchRelevantChunks(threadId, state.task, 4);
+
+        if (relevantChunks.length > 0) {
+            console.log(`[retrieveFromKBNode] ✓ Retrieved ${relevantChunks.length} relevant chunk(s) from Knowledge Base. Top match: "${relevantChunks[0].sourceTitle}" (${(relevantChunks[0].similarity * 100).toFixed(1)}% match)`);
+        } else {
+            console.log("[retrieveFromKBNode] (No matching chunks in Knowledge Base for this query)");
+        }
+
+        return {
+            relevantChunks,
+            thinkContent: relevantChunks.length > 0
+                ? `Retrieved ${relevantChunks.length} relevant excerpt(s) from Knowledge Base:\n` +
+                  relevantChunks.map(c => `• "${c.sourceTitle}" (${(c.similarity * 100).toFixed(1)}% match)`).join("\n")
+                : ""
+        };
+    } catch (err) {
+        console.warn("[retrieveFromKBNode] Knowledge Base retrieval error:", (err as Error).message);
+        return { relevantChunks: [] };
+    }
+};
+
+/**
  * 1. Cognitive Planning & Intent/Coverage Router Node:
- * Correlates user prompt, recent conversation, and existing Knowledge Base / sources
+ * Correlates user prompt, recent conversation, and semantically retrieved RAG chunks
  * to decide whether web search is even needed, or if an answer can be delivered
  * directly from memory or previous conversation.
  */
@@ -41,11 +92,25 @@ export const planQueryNode = async (state: ResearchState, config?: RunnableConfi
     console.log("\n--- [NODE: planQueryNode] Analyzing Intent & Knowledge Coverage ---");
 
     const existingSources = state.sources || [];
+    const existingKb = state.knowledgeBase || [];
+    const relevantChunks = state.relevantChunks || [];
     
-    // Compact summary of existing sources in state (first 6 sources, title + excerpt)
-    const existingKnowledgeSummary = existingSources.slice(0, 6).map((s, idx) =>
-        `[Source ${idx + 1}] Title: "${s.title}"\nURL: ${s.url}\nExcerpt: ${s.content.slice(0, 160)}...`
-    ).join("\n\n");
+    // Semantic RAG retrieved excerpts with cosine similarity scores from Knowledge Base
+    const ragKnowledgeSection = relevantChunks.length > 0
+        ? relevantChunks.map((chunk, idx) =>
+            `[Knowledge Base Match ${idx + 1}] (Cosine Similarity: ${(chunk.similarity * 100).toFixed(1)}%)\nSource: "${chunk.sourceTitle}" (${chunk.sourceUrl})\nRelevant Excerpt:\n"${chunk.content}"`
+        ).join("\n\n")
+        : "(No matching knowledge chunks found in Knowledge Base)";
+
+    // High-level catalog of Knowledge Base entries in thread memory
+    const existingKbCatalog = existingKb.length > 0
+        ? existingKb.map((k, idx) => `[KB ${idx + 1}] "${k.title}" (${k.sourceUrl}) - Category: ${k.category}\nSummary: ${k.summary}`).join("\n\n")
+        : "(Knowledge Base is currently empty - no curated sources saved yet)";
+
+    // High-level catalog of existing sources in thread memory
+    const existingSourcesCatalog = existingSources.length > 0
+        ? existingSources.map((s, idx) => `[Source ${idx + 1}] "${s.title}" (${s.url})`).join("\n")
+        : "(Session sources buffer is currently empty)";
 
     // Sliding window of recent conversation messages (last 3 messages)
     const recentMessages = (state.messages || []).slice(-3);
@@ -57,14 +122,12 @@ export const planQueryNode = async (state: ResearchState, config?: RunnableConfi
         : "(No prior messages in thread)";
     const fullConversationContext = `${summaryPrefix}Recent Messages:\n${chatContext}`;
 
-    const llm = getLocalLLm(0.3); // Low temperature for crisp, accurate routing
-
     // Active Topic History from previous graph cycles
     const activeTopics = (state.queriesHistory || []).join(" -> ") || "(None yet)";
 
     const systemPrompt = new SystemMessage(`
 You are the Cognitive Intent, Coreference Resolution & Knowledge Coverage Router for an intelligent AI research assistant.
-Your job is to analyze the user's latest request in correlation with the active research topic, conversation history, and existing Knowledge Base / sources.
+Your job is to analyze the user's latest request in correlation with the active research topic, conversation history, and semantically retrieved knowledge chunks from PostgreSQL pgvector RAG memory.
 
 TASK 1: COREFERENCE RESOLUTION & QUERY REFORMULATION
 Natural user prompts often omit the subject or use implicit references (e.g., "how to apply", "give me a stepwise guide", "what are the cloud tools", "tell me more about this", "are there any limits?", "compare with alternatives").
@@ -81,11 +144,11 @@ Determine the single best route:
    - searchQuery: null
 
 2. "ANSWER_FROM_KB":
-   - The user is asking a factual question whose answer is ALREADY CLEARLY COVERED in the "Existing Knowledge Base / Sources in Memory" below.
+   - The user is asking a factual question whose answer is ALREADY CLEARLY COVERED in the "Semantically Retrieved Knowledge via pgvector RAG (from Knowledge Base)" or recent conversation history.
    - searchQuery: null
 
 3. "SEARCH_KNOWLEDGE_GAP":
-   - The user is asking a follow-up, drill-down, or comparison related to the active topic, but the required information is MISSING from existing sources in memory.
+   - The user is asking a follow-up, drill-down, or comparison related to the active topic, but the required information is MISSING from the Knowledge Base.
    - searchQuery: Standalone rewritten search query (3-8 words) combining the topic with the missing aspect.
 
 4. "NEW_TOPIC_RESEARCH":
@@ -93,34 +156,20 @@ Determine the single best route:
    - searchQuery: Standalone search query (3-8 words) for the new topic.
 
 FEW-SHOT EXAMPLES:
-- User: "Research GitHub Student Developer Pack"
-  -> { "route": "NEW_TOPIC_RESEARCH", "searchQuery": "GitHub Student Developer Pack benefits tools", "reason": "User started a new topic research." }
+- Context: Active topic is "GitHub Student Developer Pack". Retrieved chunks discuss Namecheap domain and DigitalOcean credit.
+  User: "Which domain registrar did you find in it?"
+  -> { "route": "ANSWER_FROM_KB", "searchQuery": null, "reason": "Retrieved knowledge chunks specifically cover Namecheap domain registration." }
 
-- Context: Active topic is "GitHub Student Developer Pack". Sources do NOT have step-by-step sign-up steps.
+- Context: Active topic is "GitHub Student Developer Pack". Retrieved chunks only cover benefits, not verification documents.
   User: "how do i sign up and what documents do i need"
   -> { "route": "SEARCH_KNOWLEDGE_GAP", "searchQuery": "GitHub Student Developer Pack student verification application steps documents", "reason": "Follow-up question on registration requirements not covered in existing sources." }
 
-- Context: Active topic is "Docker container optimization". Sources already explain multi-stage builds.
-  User: "What was the benefit of multi-stage builds again?"
-  -> { "route": "ANSWER_FROM_KB", "searchQuery": null, "reason": "Multi-stage build benefits are already covered in source 2." }
+- User: "Research GitHub Student Developer Pack"
+  -> { "route": "NEW_TOPIC_RESEARCH", "searchQuery": "GitHub Student Developer Pack benefits tools", "reason": "User started a new topic research." }
 
 - Context: Previous response was a long report.
   User: "can you present that as a markdown comparison table?"
   -> { "route": "DIRECT_CONVERSATION", "searchQuery": null, "reason": "Formatting request on prior content, no search needed." }
-
-- Context: Active topic was "PostgreSQL indexing".
-  User: "What are the key differences between React and Svelte?"
-  -> { "route": "NEW_TOPIC_RESEARCH", "searchQuery": "React vs Svelte comparison differences", "reason": "User completely switched to a new topic." }
-
-CRITICAL OUTPUT FORMAT:
-You MUST output valid JSON with this exact schema:
-{
-  "route": "DIRECT_CONVERSATION" | "ANSWER_FROM_KB" | "SEARCH_KNOWLEDGE_GAP" | "NEW_TOPIC_RESEARCH",
-  "searchQuery": string | null,
-  "reason": "1-2 sentence explanation of your decision"
-}
-
-Do not wrap in Markdown codeblocks if possible, or use standard \`\`\`json.
 `.trim());
 
     const userPrompt = new HumanMessage(`
@@ -132,8 +181,14 @@ ${activeTopics}
 Recent Conversation Context:
 ${fullConversationContext}
 
-Existing Knowledge Base / Sources in Memory (${existingSources.length} sources):
-${existingKnowledgeSummary || "(Memory is currently empty - no sources stored yet)"}
+Semantically Retrieved Knowledge via pgvector RAG (from Knowledge Base):
+${ragKnowledgeSection}
+
+Curated Knowledge Base Catalog (${existingKb.length} items):
+${existingKbCatalog}
+
+All Available Research Sources (${existingSources.length} sources):
+${existingSourcesCatalog}
 `.trim());
 
     const structuredRouter = withLLMStructuredOutput(routingDecisionSchema, 0.2);
@@ -187,7 +242,7 @@ ${existingKnowledgeSummary || "(Memory is currently empty - no sources stored ye
  * 2. Search & KB Ingestion Node:
  * Executes Tavily search, deduplicates sources, extracts new Knowledge Base items.
  */
-export const searchTavilyNode = async (state: ResearchState): Promise<Partial<ResearchState>> => {
+export const searchTavilyNode = async (state: ResearchState, config?: RunnableConfig): Promise<Partial<ResearchState>> => {
     const query = state.currentQuery || state.task;
     const iteration = state.iteration || 1;
 
@@ -214,11 +269,13 @@ export const searchTavilyNode = async (state: ResearchState): Promise<Partial<Re
         if (!url) continue;
 
         const isNew = !existingUrls.has(url);
+        // Retain complete parsed page content from Tavily for deep contextual indexing
+        const fullContent = (r.raw_content || r.rawContent || r.content || "").trim();
         const item: SourceItem = {
             id: r.id || Math.random().toString(36).substring(2, 9),
             title: r.title || "Untitled Source",
             url,
-            content: r.content || "",
+            content: fullContent,
             score: r.score,
             iteration,
             isNew,
@@ -227,11 +284,12 @@ export const searchTavilyNode = async (state: ResearchState): Promise<Partial<Re
         newSources.push(item);
     }
 
-    console.log(`[searchTavilyNode] Retrieved ${rawResults.length} results (${newSources.filter(s => s.isNew).length} new sources)`);
+    const actualNewSources = newSources.filter(s => s.isNew);
+    console.log(`[searchTavilyNode] Retrieved ${rawResults.length} results (${actualNewSources.length} new sources)`);
 
     return {
         sources: newSources,
-        newSourcesThisStep: newSources.filter(s => s.isNew),
+        newSourcesThisStep: actualNewSources,
     };
 };
 
@@ -348,12 +406,19 @@ export const synthesizeReportNode = async (state: ResearchState, config?: Runnab
 
     const llm = getLocalLLm(0.6);
     const sources = state.sources || [];
+    const relevantChunks = state.relevantChunks || [];
     const route = state.route || "NEW_TOPIC_RESEARCH";
-    console.log(`[synthesizeReportNode Debug] Synthesis mode for route: "${route}" (with ${sources.length} sources)`);
+    console.log(`[synthesizeReportNode Debug] Synthesis mode for route: "${route}" (with ${sources.length} sources, ${relevantChunks.length} RAG chunks)`);
 
     const sourcesReferenceList = sources.map((s, idx) =>
         `[${idx + 1}] Title: ${s.title}\nURL: ${s.url}\nExcerpt: ${s.content.slice(0, 300)}`
     ).join("\n\n");
+
+    const ragEvidenceList = relevantChunks.map((chunk) => {
+        const sourceIndex = sources.findIndex(s => s.url === chunk.sourceUrl);
+        const citeNum = sourceIndex >= 0 ? `[${sourceIndex + 1}]` : `[Source Reference]`;
+        return `${citeNum} "${chunk.sourceTitle}" (Cosine Match: ${(chunk.similarity * 100).toFixed(1)}%)\nRelevant Evidence: "${chunk.content}"`;
+    }).join("\n\n");
 
     const summaryPrefix = state.conversationSummary
         ? `Long-term Thread Summary:\n"${state.conversationSummary}"\n\n`
@@ -396,7 +461,7 @@ GUIDELINES:
         userPrompt = new HumanMessage(`
 ${conversationContext ? "Previous Conversation Context:\n" + conversationContext + "\n\n" : ""}User Request: "${state.task}"
 
-Verified Research Sources:
+${ragEvidenceList ? `Top Semantically Retrieved Evidence (pgvector RAG):\n${ragEvidenceList}\n\n` : ""}Verified Research Sources:
 ${sourcesReferenceList || "(Answer based on knowledge base in memory)"}
 
 Synthesize a complete, definitive answer with numbered citations:

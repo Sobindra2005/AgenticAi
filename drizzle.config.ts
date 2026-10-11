@@ -3,6 +3,7 @@ import "dotenv/config";
 
 export default defineConfig({
   schema: "./src/models/schema.ts",
+  out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
     url:
@@ -10,3 +11,4 @@ export default defineConfig({
       "postgresql://postgres:postgres@localhost:5432/agentic_ai",
   },
 });
+

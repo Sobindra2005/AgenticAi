@@ -3,7 +3,8 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { apiRouter, researchRoutes } from "./routes/index.js";
-import { checkDatabaseConnection } from "./db/index.js";
+import { checkDatabaseConnection, db } from "./db/index.js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { checkpointer } from "./graphs/index.js";
 import { renderAppPage } from "./views/ssr.js";
 import * as esbuild from "esbuild";
@@ -66,6 +67,10 @@ checkDatabaseConnection()
   .then(() => checkpointer.setup())
   .then(() => {
     console.log("[Checkpointer] ✓ PostgreSQL checkpointer initialized (tables ready).");
+    return migrate(db, { migrationsFolder: "./drizzle" });
+  })
+  .then(() => {
+    console.log("[Database] ✓ Database migrations applied successfully (pgvector ready).");
     return setupClientBundle();
   })
   .then(() => {

@@ -27,6 +27,14 @@ export interface EvaluationResult {
   nextQuery?: string;
 }
 
+export interface RetrievedKnowledgeChunk {
+  id: string;
+  sourceUrl: string;
+  sourceTitle: string;
+  content: string;
+  similarity: number;
+}
+
 export type RoutingDecision =
   | "DIRECT_CONVERSATION"
   | "ANSWER_FROM_KB"
@@ -34,6 +42,11 @@ export type RoutingDecision =
   | "NEW_TOPIC_RESEARCH";
 
 export const ResearchAnnotation = Annotation.Root({
+  // Top semantically retrieved chunks from PostgreSQL pgvector RAG
+  relevantChunks: Annotation<RetrievedKnowledgeChunk[]>({
+    reducer: (_, next) => next,
+    default: () => [],
+  }),
   // Built-in LangGraph message history reducer
   messages: Annotation<BaseMessage[]>({
     reducer: messagesStateReducer,

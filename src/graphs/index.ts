@@ -2,6 +2,7 @@ import { StateGraph, START, END } from "@langchain/langgraph";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { ResearchAnnotation, ResearchState } from "./state.js";
 import {
+    retrieveFromKBNode,
     planQueryNode,
     searchTavilyNode,
     evaluateSufficiencyNode,
@@ -48,11 +49,13 @@ export const routeAfterPlanning = (state: ResearchState): "synthesizeReport" | "
 
 // Build and compile the LangGraph workflow with PostgreSQL checkpointer
 export const researchGraph = new StateGraph(ResearchAnnotation)
+    .addNode("retrieveFromKB", retrieveFromKBNode)
     .addNode("planQuery", planQueryNode)
     .addNode("searchTavily", searchTavilyNode)
     .addNode("evaluateSufficiency", evaluateSufficiencyNode)
     .addNode("synthesizeReport", synthesizeReportNode)
-    .addEdge(START, "planQuery")
+    .addEdge(START, "retrieveFromKB")
+    .addEdge("retrieveFromKB", "planQuery")
     .addConditionalEdges("planQuery", routeAfterPlanning, {
         synthesizeReport: "synthesizeReport",
         searchTavily: "searchTavily",
