@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, asc } from "drizzle-orm";
 import { db } from "../db/index.js";
 import * as models from "../models/index.js";
 import { SourceItem, KnowledgeBaseEntry } from "../graphs/state.js";
@@ -91,10 +91,10 @@ export const ThreadService = {
     const [threadList, messagesList, sourcesList, kbList, tracesList] =
       await Promise.all([
         db.select().from(models.threads).where(eq(models.threads.id, id)),
-        db.select().from(models.messages).where(eq(models.messages.threadId, id)),
+        db.select().from(models.messages).where(eq(models.messages.threadId, id)).orderBy(asc(models.messages.createdAt)),
         db.select().from(models.sources).where(eq(models.sources.threadId, id)),
         db.select().from(models.knowledgeBase).where(eq(models.knowledgeBase.threadId, id)),
-        db.select().from(models.traces).where(eq(models.traces.threadId, id)),
+        db.select().from(models.traces).where(eq(models.traces.threadId, id)).orderBy(asc(models.traces.createdAt)),
       ]);
 
     return {

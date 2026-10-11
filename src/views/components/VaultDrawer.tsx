@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { SourceItem, KnowledgeBaseEntry } from "../../graphs/state.js";
 
 export interface TraceStep {
@@ -26,6 +26,42 @@ function extractDomain(urlStr: string): string {
   }
 }
 
+export function sortTracesAscending(rawTraces: TraceStep[]): TraceStep[] {
+  if (!rawTraces || rawTraces.length <= 1) return rawTraces || [];
+
+  const parseTime = (t?: string): number => {
+    if (!t) return 0;
+    const direct = Date.parse(t);
+    if (!isNaN(direct)) return direct;
+    try {
+      const d = new Date(`1970-01-01 ${t}`);
+      if (!isNaN(d.getTime())) return d.getTime();
+    } catch {}
+    return 0;
+  };
+
+  const firstTime = parseTime(rawTraces[0]?.time);
+  const lastTime = parseTime(rawTraces[rawTraces.length - 1]?.time);
+
+  // If first trace is strictly newer than last trace, array was stored in reverse order
+  if (firstTime > lastTime) {
+    return [...rawTraces].reverse();
+  }
+
+  const isOutOfOrder = rawTraces.some((curr, idx) => {
+    if (idx === 0) return false;
+    const prevTime = parseTime(rawTraces[idx - 1].time);
+    const currTime = parseTime(curr.time);
+    return prevTime > currTime && currTime > 0;
+  });
+
+  if (isOutOfOrder) {
+    return [...rawTraces].sort((a, b) => parseTime(a.time) - parseTime(b.time));
+  }
+
+  return rawTraces;
+}
+
 export const VaultDrawer: React.FC<VaultDrawerProps> = ({
   sources,
   kb,
@@ -45,12 +81,15 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
   const [copyFeedback, setCopyFeedback] = useState(false);
   const traceListRef = useRef<HTMLDivElement>(null);
 
+  // Always enforce ascending sequence / chronological order
+  const orderedTraces = useMemo(() => sortTracesAscending(traces), [traces]);
+
   // Always by default scroll trace to latest (bottom)
   useEffect(() => {
     if (activeTab === "trace" && traceListRef.current) {
       traceListRef.current.scrollTop = traceListRef.current.scrollHeight;
     }
-  }, [traces, activeTab]);
+  }, [orderedTraces, activeTab]);
 
   const existingKbUrls = new Set(kb.map((k) => k.sourceUrl));
 
@@ -151,7 +190,7 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
         >
           <span>⚡ Graph Trace</span>
           <span id="tab-trace-count" className="tab-badge">
-            {traces.length}
+            {orderedTraces.length}
           </span>
         </button>
       </div>
@@ -505,7 +544,7 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
                 padding: "6px 4px 6px 0",
               }}
             >
-              {traces.length === 0 ? (
+              {orderedTraces.length === 0 ? (
                 <div className="vault-empty">
                   <span className="vault-empty-icon">⚡</span>
                   <strong>No trace events recorded</strong>
@@ -514,7 +553,7 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
                   </p>
                 </div>
               ) : (
-                traces.map((step, idx) => {
+                orderedTraces.map((step, idx) => {
                   let iconClass = "trace-plan";
                   let iconChar = "💭";
                   if (step.node === "searchTavily") {
