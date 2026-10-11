@@ -387,10 +387,10 @@ Your task is to synthesize verified research findings into a comprehensive, beau
 GUIDELINES:
 1. Provide a clear, insightful executive summary answering the user's query directly.
 2. Structure the core points with logical sections, bullet points, and tables where applicable.
-3. ALWAYS cite your claims using bracketed numbers like [1], [2] matching the source numbers provided.
+3. CITATIONS: ALWAYS cite claims using bracketed numbers matching the numbered sources below (e.g. [1], [2], [3]). Place the citation immediately after the factual statement, tool, or claim (e.g. "GitHub provides free Copilot access [1]"). When multiple sources support a point, cite them like [1, 2] or [1][2]. Every single factual tool, service, benefit, or claim MUST be backed by a source number.
 4. Conclude with actionable takeaways, next steps, or a roadmap relevant to the user's query.
 5. Format with rich Markdown: headers (##, ###), bullet points, and tables where applicable.
-6. Strictly stick to verified information. Do not invent unrelated topics.
+6. Strictly stick to verified information. Do not invent unverified sources or source numbers outside the list.
         `.trim());
 
         userPrompt = new HumanMessage(`

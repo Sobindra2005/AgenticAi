@@ -171,6 +171,7 @@ export const App: React.FC<AppProps> = ({
           thinking: m.thinking,
           report: m.report || m.content,
           iterations: m.iterations || 1,
+          sources: data.sources || [],
         }));
         setMessages(msgs);
         setSources(data.sources || []);
@@ -478,6 +479,7 @@ export const App: React.FC<AppProps> = ({
                     statusText: `Completed in ${data.iterations} round(s) • ${data.sources.length} sources`,
                     report: finalRep,
                     iterations: data.iterations,
+                    sources: data.sources || accumulatedSources,
                   }
                 : m
             )

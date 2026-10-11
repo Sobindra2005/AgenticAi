@@ -16,6 +16,7 @@ export interface MessageItem {
   thinking?: string | null;
   report?: string | null;
   iterations?: number | null;
+  sources?: SourceItem[];
   // Live streaming states
   statusText?: string;
   isStreaming?: boolean;
@@ -49,6 +50,81 @@ function extractDomain(urlStr: string): string {
   } catch {
     return "web";
   }
+}
+
+function escapeHtml(str: string): string {
+  return (str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
+ * Transforms plain bracket citations like [1], [2], [1, 2] in HTML
+ * into interactive, hoverable pills with floating source preview cards
+ * and direct links to the verified source URL.
+ */
+function enhanceCitationsWithTooltips(html: string, sourcesList: SourceItem[]): string {
+  if (!html) return "";
+  if (!sourcesList || sourcesList.length === 0) return html;
+
+  // Split HTML so code blocks (<pre> and <code>) and existing anchor tags (<a>) are untouched
+  const parts = html.split(/(<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>|<a\b[\s\S]*?<\/a>)/gi);
+
+  return parts
+    .map((part, index) => {
+      // Odd indices are protected tags
+      if (index % 2 === 1) return part;
+
+      // Replace bracketed citations: [1], [2], [1, 2], [1, 2, 3]
+      return part.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (match, numsStr) => {
+        const numbers = numsStr
+          .split(",")
+          .map((n: string) => parseInt(n.trim(), 10))
+          .filter((n: number) => !isNaN(n));
+
+        if (numbers.length === 0) return match;
+
+        const pills = numbers
+          .map((num: number) => {
+            const sourceIndex = num - 1;
+            const source = sourcesList[sourceIndex];
+
+            if (!source || !source.url) {
+              return `<span class="citation-pill citation-pill-unknown" title="Source ${num}">[${num}]</span>`;
+            }
+
+            const domain = extractDomain(source.url);
+            const title = escapeHtml(source.title || "Source Reference");
+            const rawSnippet = (source.content || "").replace(/\s+/g, " ").trim();
+            const snippet = escapeHtml(
+              rawSnippet.slice(0, 150) + (rawSnippet.length > 150 ? "..." : "")
+            );
+
+            return `
+<span class="citation-wrapper">
+  <a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer" class="citation-pill" data-citation="${num}">
+    [${num}]
+  </a>
+  <span class="citation-tooltip" role="tooltip">
+    <span class="citation-tooltip-header">
+      <span class="citation-tooltip-badge">Source [${num}]</span>
+      <span class="citation-tooltip-domain">${escapeHtml(domain)}</span>
+    </span>
+    <span class="citation-tooltip-title">${title}</span>
+    ${snippet ? `<span class="citation-tooltip-snippet">${snippet}</span>` : ""}
+    <span class="citation-tooltip-footer">Click to open source ↗</span>
+  </span>
+</span>`.trim();
+          })
+          .join("");
+
+        return `<span class="citation-group">${pills}</span>`;
+      });
+    })
+    .join("");
 }
 
 export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
@@ -156,6 +232,45 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
       scrollToBottom(true);
     }, 50);
     onSubmitQuery(query);
+  };
+
+  // Dynamically adjust citation tooltip alignment & vertical flip so it is never clipped
+  const handleCitationMouseOver = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    const wrapper = target.closest(".citation-wrapper") as HTMLElement | null;
+    if (!wrapper) return;
+
+    const tooltip = wrapper.querySelector(".citation-tooltip") as HTMLElement | null;
+    if (!tooltip) return;
+
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const chatContainer = chatHistoryRef.current;
+    const containerRect = chatContainer
+      ? chatContainer.getBoundingClientRect()
+      : { top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight };
+
+    // If near top of scrollable container or viewport, flip downwards
+    const spaceAbove = wrapperRect.top - containerRect.top;
+    if (spaceAbove < 140) {
+      tooltip.classList.add("tooltip-bottom");
+    } else {
+      tooltip.classList.remove("tooltip-bottom");
+    }
+
+    // Check horizontal boundaries to avoid clipping left/right
+    const halfWidth = 145; // Tooltip is 290px wide
+    const centerX = wrapperRect.left + wrapperRect.width / 2;
+
+    if (centerX - halfWidth < containerRect.left + 8) {
+      tooltip.classList.add("tooltip-align-left");
+      tooltip.classList.remove("tooltip-align-right");
+    } else if (centerX + halfWidth > containerRect.right - 8) {
+      tooltip.classList.add("tooltip-align-right");
+      tooltip.classList.remove("tooltip-align-left");
+    } else {
+      tooltip.classList.remove("tooltip-align-left");
+      tooltip.classList.remove("tooltip-align-right");
+    }
   };
 
   return (
@@ -267,7 +382,11 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
               }
 
               // Assistant Message
-              const reportHtml = md.render(msg.report || msg.content || "");
+              const effectiveSources = (msg.sources && msg.sources.length > 0)
+                ? msg.sources
+                : sources;
+              const rawReportHtml = md.render(msg.report || msg.content || "");
+              const reportHtml = enhanceCitationsWithTooltips(rawReportHtml, effectiveSources);
 
               return (
                 <div key={msg.id || idx} className="assistant-message">
@@ -375,6 +494,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                   <div
                     className="report-content"
                     dangerouslySetInnerHTML={{ __html: reportHtml }}
+                    onMouseOver={handleCitationMouseOver}
                   />
                 </div>
               );
