@@ -42,6 +42,8 @@ export async function* streamResearchWorkflow(
     }
   }
 
+  const effectiveThreadId = threadId;
+
   // Initial event: planning started
   yield {
     type: "step_start",
@@ -52,7 +54,10 @@ export async function* streamResearchWorkflow(
 
   const eventStream = await researchGraph.stream(
     { task, maxIterations },
-    { streamMode: ["updates", "messages"] }
+    {
+      streamMode: ["updates", "messages"],
+      configurable: { thread_id: effectiveThreadId },
+    }
   );
 
   let accumulatedSources: SourceItem[] = [];
@@ -249,13 +254,17 @@ export async function* streamResearchWorkflow(
 /**
  * Standard non-streaming workflow execution
  */
-export async function runWorkflow(input: string): Promise<WorkflowResult> {
+export async function runWorkflow(input: string, threadId?: string): Promise<WorkflowResult> {
   const task = input.trim();
   if (!task) {
     throw new Error("Please enter a research topic or question.");
   }
 
-  const result = await researchGraph.invoke({ task, maxIterations: 2 });
+  const effectiveThreadId = threadId || `adhoc-${Date.now()}`;
+  const result = await researchGraph.invoke(
+    { task, maxIterations: 2 },
+    { configurable: { thread_id: effectiveThreadId } }
+  );
 
   return {
     input,

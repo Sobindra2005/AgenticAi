@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { apiRouter, researchRoutes } from "./routes/index.js";
 import { checkDatabaseConnection } from "./db/index.js";
+import { checkpointer } from "./graphs/index.js";
 import { renderAppPage } from "./views/ssr.js";
 import * as esbuild from "esbuild";
 
@@ -62,7 +63,11 @@ async function setupClientBundle(): Promise<void> {
 }
 
 checkDatabaseConnection()
-  .then(() => setupClientBundle())
+  .then(() => checkpointer.setup())
+  .then(() => {
+    console.log("[Checkpointer] ✓ PostgreSQL checkpointer initialized (tables ready).");
+    return setupClientBundle();
+  })
   .then(() => {
     app.listen(port, () => {
       console.log(`Agentic AI Playground running at http://localhost:${port}`);

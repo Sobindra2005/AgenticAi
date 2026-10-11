@@ -1,4 +1,5 @@
 import { StateGraph, START, END } from "@langchain/langgraph";
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { ResearchAnnotation, ResearchState } from "./state.js";
 import {
     planQueryNode,
@@ -6,6 +7,10 @@ import {
     evaluateSufficiencyNode,
     synthesizeReportNode,
 } from "./nodes.js";
+
+const connectionString = process.env.DATABASE_URL 
+// Initialize PostgreSQL checkpointer for graph persistence, time-travel, and HITL
+export const checkpointer = PostgresSaver.fromConnString(connectionString!);
 
 /**
  * Conditional router:
@@ -26,7 +31,7 @@ export const shouldContinue = (state: ResearchState): "synthesizeReport" | "sear
     return "searchTavily";
 };
 
-// Build and compile the LangGraph workflow
+// Build and compile the LangGraph workflow with PostgreSQL checkpointer
 export const researchGraph = new StateGraph(ResearchAnnotation)
     .addNode("planQuery", planQueryNode)
     .addNode("searchTavily", searchTavilyNode)
@@ -40,7 +45,7 @@ export const researchGraph = new StateGraph(ResearchAnnotation)
         searchTavily: "searchTavily",
     })
     .addEdge("synthesizeReport", END)
-    .compile();
+    .compile({ checkpointer });
 
 export * from "./state.js";
 export * from "./nodes.js";
