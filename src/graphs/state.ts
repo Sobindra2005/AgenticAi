@@ -87,10 +87,7 @@ export const ResearchAnnotation = Annotation.Root({
 
   // History of all executed queries for the active research task
   queriesHistory: Annotation<string[]>({
-    reducer: (prev, next) => {
-      if (Array.isArray(next) && next.length === 0) return [];
-      return Array.from(new Set([...(prev || []), ...(next || [])]));
-    },
+    reducer: (_, next) => next ?? [],
     default: () => [],
   }),
 

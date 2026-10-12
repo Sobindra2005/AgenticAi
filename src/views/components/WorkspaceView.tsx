@@ -9,6 +9,10 @@ const md = new MarkdownIt({
   breaks: true,
 });
 
+// Wrap markdown tables in responsive horizontal scroll containers
+md.renderer.rules.table_open = () => '<div class="table-container"><table>';
+md.renderer.rules.table_close = () => '</table></div>';
+
 export interface MessageItem {
   id?: string;
   role: "user" | "assistant";

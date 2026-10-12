@@ -16,9 +16,9 @@ const projectRoot = path.resolve(currentDirectory, "..");
 
 const app = express();
 
-// Body Parsing & Static Assets
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+// Body Parsing & Static Assets (increased limits for agent trace and search data)
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(projectRoot, "public")));
 
 // Mount Routers (MVC Pattern)

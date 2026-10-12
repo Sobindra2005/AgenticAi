@@ -1,3 +1,4 @@
+import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { ChatGroq } from "@langchain/groq";
 import { ChatOllama } from "@langchain/ollama";
 import { TavilySearch } from "@langchain/tavily";
@@ -5,12 +6,15 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const key = process.env.api_key
-export const llm = new ChatGroq({
-    apiKey: key,
-    model: 'llama-3.3-70b-versatile',
-    temperature: 0.7
-})
+const key = process.env.API_KEY
+
+export const cloudLLM = (temperature = 0.5) => {
+    return new ChatGroq({
+        apiKey: key,
+        model: 'openai/gpt-oss-120b',
+        temperature: temperature
+    })
+}
 
 
 export const getLocalLLm = (temperature = 0.6) => {
@@ -25,9 +29,8 @@ export const getLocalLLm = (temperature = 0.6) => {
  * Creates a structured output LLM runnable using a Zod schema.
  * Enforces native schema constraints and automatic parsing.
  */
-export const withLLMStructuredOutput = (schema: any, temperature = 0.3) => {
-    const localModel = getLocalLLm(temperature);
-    return localModel.withStructuredOutput(schema);
+export const withLLMStructuredOutput = (schema: any, llm: BaseChatModel) => {
+    return llm.withStructuredOutput(schema);
 };
 
 /**
@@ -52,7 +55,6 @@ export function extractThinkAndContent(text: string): { thinking: string; conten
     }
     return { thinking: "", content: text.trim() };
 }
-
 
 export const getTavily = () => {
     const tavily = new TavilySearch({

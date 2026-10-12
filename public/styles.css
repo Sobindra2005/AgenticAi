@@ -212,8 +212,9 @@ body::before {
 .workspace {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: grid;
-  grid-template-columns: minmax(520px, 1.45fr) minmax(400px, 1.15fr);
+  grid-template-columns: minmax(0, 1.45fr) minmax(380px, 1.15fr);
   gap: 16px;
 }
 
@@ -232,6 +233,8 @@ body::before {
 /* Left Panel: Chat & Agent Feed */
 .chat-panel {
   padding: 16px 20px;
+  min-width: 0;
+  overflow: hidden;
 }
 .prompt-chips {
   display: flex;
@@ -267,11 +270,14 @@ body::before {
 .chat-history {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 4px 16px 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
 }
 
 /* User Message */
@@ -283,10 +289,15 @@ body::before {
   padding: 12px 18px;
   border-radius: 14px 14px 2px 14px;
   max-width: 82%;
+  min-width: 0;
+  flex-shrink: 0;
+  height: auto;
+  box-sizing: border-box;
   font-size: 14px;
   line-height: 1.5;
   box-shadow: 0 2px 12px rgba(0,0,0,0.25);
   word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 /* Assistant Message / Research Card */
@@ -294,6 +305,11 @@ body::before {
   align-self: flex-start;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
+  flex-shrink: 0; /* Dynamic height based on response length; never vertically squished */
+  height: auto;
+  overflow: visible; /* Let container stretch naturally to content height without internal scrollbar */
+  box-sizing: border-box;
   background: var(--panel-card);
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -313,6 +329,9 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .stepper-header {
@@ -344,6 +363,8 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
 }
 .round-node {
   background: color-mix(in srgb, var(--panel-card) 60%, transparent);
@@ -354,11 +375,16 @@ body::before {
   flex-direction: column;
   gap: 8px;
   font-size: 13px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .round-badge-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .search-pill {
   display: flex;
@@ -372,6 +398,8 @@ body::before {
   padding: 4px 10px;
   border-radius: 6px;
   word-break: break-all;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Sources Mini Chips in Chat */
@@ -487,6 +515,11 @@ body::before {
   white-space: pre-wrap;
   max-height: 150px;
   overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+  max-width: 100%;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 /* Report Content */
@@ -494,6 +527,12 @@ body::before {
   font-size: 14.5px;
   line-height: 1.65;
   color: var(--ink);
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  flex-shrink: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 .report-content h1, .report-content h2, .report-content h3 {
   margin: 16px 0 8px;
@@ -506,22 +545,78 @@ body::before {
 .report-content p { margin: 8px 0; }
 .report-content ul, .report-content ol { margin: 8px 0 8px 20px; }
 .report-content li { margin-bottom: 4px; }
-.report-content table {
+
+/* Responsive Table Container (scrolls horizontally, natural dynamic height) */
+.table-container {
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  margin: 14px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.table-container table {
+  width: min-content;
+  height: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 0;
+  display: table;
+}
+/* Fallback if table rendered without container */
+.report-content table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border-collapse: collapse;
   margin: 12px 0;
   font-size: 13px;
 }
+.table-container table {
+  display: table;
+}
+.table-container th, .table-container td,
 .report-content th, .report-content td {
   border: 1px solid var(--line);
-  padding: 8px 12px;
+  padding: 10px 14px;
   text-align: left;
+  vertical-align: top;
+  font-size: 13px;
+  line-height: 1.5;
 }
-.report-content th {
-  background: var(--bg);
+.table-container th, .report-content th {
+  background: color-mix(in srgb, var(--panel-card) 75%, var(--bg));
   color: var(--muted);
   font-family: 'DM Mono', monospace;
-  font-weight: 500;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.table-container td, .report-content td {
+  min-width: 140px;
+  max-width: 360px;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+.table-container::-webkit-scrollbar {
+  height: 6px;
+}
+.table-container::-webkit-scrollbar-track {
+  background: var(--bg);
+  border-radius: 3px;
+}
+.table-container::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 3px;
+}
+.table-container::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
 }
 .report-content code {
   font-family: 'DM Mono', monospace;
@@ -531,10 +626,20 @@ body::before {
   padding: 2px 5px;
   border-radius: 4px;
 }
+.report-content pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  margin: 12px 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
 .report-content pre code {
   display: block;
   padding: 12px;
   overflow-x: auto;
+  max-width: 100%;
+  white-space: pre;
 }
 .citation-chip {
   display: inline-block;

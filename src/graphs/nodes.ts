@@ -1,8 +1,8 @@
 import { SystemMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
 import { RunnableConfig } from "@langchain/core/runnables";
 import { z } from "zod";
-import { getLocalLLm, getTavily, extractThinkAndContent, withLLMStructuredOutput } from "../utils.js";
-import { ResearchState, SourceItem, KnowledgeBaseEntry, RoutingDecision } from "./state.js";
+import { getLocalLLm, getTavily, extractThinkAndContent, withLLMStructuredOutput, cloudLLM } from "../utils.js";
+import { ResearchState, SourceItem, RoutingDecision } from "./state.js";
 import { searchRelevantChunks, syncKnowledgeBaseVectors } from "../services/rag.service.js";
 
 export const routingDecisionSchema = z.object({
@@ -73,7 +73,7 @@ export const retrieveFromKBNode = async (
             relevantChunks,
             thinkContent: relevantChunks.length > 0
                 ? `Retrieved ${relevantChunks.length} relevant excerpt(s) from Knowledge Base:\n` +
-                  relevantChunks.map(c => `• "${c.sourceTitle}" (${(c.similarity * 100).toFixed(1)}% match)`).join("\n")
+                relevantChunks.map(c => `• "${c.sourceTitle}" (${(c.similarity * 100).toFixed(1)}% match)`).join("\n")
                 : ""
         };
     } catch (err) {
@@ -94,7 +94,7 @@ export const planQueryNode = async (state: ResearchState, config?: RunnableConfi
     const existingSources = state.sources || [];
     const existingKb = state.knowledgeBase || [];
     const relevantChunks = state.relevantChunks || [];
-    
+
     // Semantic RAG retrieved excerpts with cosine similarity scores from Knowledge Base
     const ragKnowledgeSection = relevantChunks.length > 0
         ? relevantChunks.map((chunk, idx) =>
@@ -133,8 +133,9 @@ TASK 1: COREFERENCE RESOLUTION & QUERY REFORMULATION
 Natural user prompts often omit the subject or use implicit references (e.g., "how to apply", "give me a stepwise guide", "what are the cloud tools", "tell me more about this", "are there any limits?", "compare with alternatives").
 If the user's prompt is a follow-up or drill-down related to the ongoing conversation or active topic:
 - You MUST resolve all implicit references and pronouns organically.
-- Formulate a completely self-contained, STANDALONE search query that combines the core topic entity with the user's specific request.
-- Example: If the active topic is "GitHub Student Developer Pack" and the user asks "how do I sign up and get verified?", the searchQuery MUST be "GitHub Student Developer Pack application verification steps", NOT just "how do I sign up".
+- Formulate a completely self-contained, STANDALONE search query focusing strictly on the specific entity and question requested.
+- STRICT ANTI-CONTAMINATION RULE: DO NOT drag in unrelated keywords, past industry terms, or topics from prior turns that the user is not actively asking about. (For example, if the previous turn discussed "marketing CRM AI tools" and the user now asks "popular business or startup to start in Nepal understanding supply chain", the search query MUST be "Nepal startups supply chain logistics 2026", and MUST NOT include "marketing CRM AI tools"). Keep the search query razor-focused on the new request.
+- Keep the query between 3 to 8 words.
 
 TASK 2: INTENT & KNOWLEDGE COVERAGE ROUTING
 Determine the single best route:
@@ -149,10 +150,10 @@ Determine the single best route:
 
 3. "SEARCH_KNOWLEDGE_GAP":
    - The user is asking a follow-up, drill-down, or comparison related to the active topic, but the required information is MISSING from the Knowledge Base.
-   - searchQuery: Standalone rewritten search query (3-8 words) combining the topic with the missing aspect.
+   - searchQuery: Standalone rewritten search query (3-8 words) combining the topic with the missing aspect without keyword dragging.
 
 4. "NEW_TOPIC_RESEARCH":
-   - The user has switched to a brand new, unrelated research subject with zero connection to the prior conversation.
+   - The user has switched to a brand new, unrelated research subject or a completely different domain/inquiry.
    - searchQuery: Standalone search query (3-8 words) for the new topic.
 
 FEW-SHOT EXAMPLES:
@@ -164,8 +165,9 @@ FEW-SHOT EXAMPLES:
   User: "how do i sign up and what documents do i need"
   -> { "route": "SEARCH_KNOWLEDGE_GAP", "searchQuery": "GitHub Student Developer Pack student verification application steps documents", "reason": "Follow-up question on registration requirements not covered in existing sources." }
 
-- User: "Research GitHub Student Developer Pack"
-  -> { "route": "NEW_TOPIC_RESEARCH", "searchQuery": "GitHub Student Developer Pack benefits tools", "reason": "User started a new topic research." }
+- Context: Active topic was "AI tools for small business marketing CRM".
+  User: "also research some popular business or startup to start in nepal currently at 2026 understanding the supply chain"
+  -> { "route": "NEW_TOPIC_RESEARCH", "searchQuery": "Nepal startups 2026 supply chain logistics business ideas", "reason": "User pivoted to a specific new topic: Nepali supply chain startups. Old marketing keywords omitted to prevent contamination." }
 
 - Context: Previous response was a long report.
   User: "can you present that as a markdown comparison table?"
@@ -191,7 +193,8 @@ All Available Research Sources (${existingSources.length} sources):
 ${existingSourcesCatalog}
 `.trim());
 
-    const structuredRouter = withLLMStructuredOutput(routingDecisionSchema, 0.2);
+    const llm = cloudLLM(0.2)
+    const structuredRouter = withLLMStructuredOutput(routingDecisionSchema, llm);
 
     let route: RoutingDecision = "NEW_TOPIC_RESEARCH";
     let query: string = state.task;
@@ -221,8 +224,8 @@ ${existingSourcesCatalog}
         console.log(`[planQueryNode] No search needed. Answering directly!`);
     }
 
-    // When starting a brand-new topic, clear active sources buffer so old sources don't pollute
-    const resetSources = route === "NEW_TOPIC_RESEARCH" ? [] : undefined;
+    // When starting research, clear active sources buffer so old sources don't pollute this run
+    const resetSources = (route === "NEW_TOPIC_RESEARCH" || route === "SEARCH_KNOWLEDGE_GAP") ? [] : undefined;
 
     return {
         route,
@@ -326,7 +329,8 @@ export const evaluateSufficiencyNode = async (state: ResearchState, config?: Run
         };
     }
 
-    const structuredEvaluator = withLLMStructuredOutput(sufficiencyEvaluationSchema, 0.2);
+    const llm = cloudLLM(0.3);
+    const structuredEvaluator = withLLMStructuredOutput(sufficiencyEvaluationSchema, llm);
 
     const sourcesSummary = sources.slice(0, 6).map((s, idx) =>
         `[${idx + 1}] "${s.title}" (${s.url})\nSummary: ${s.content.slice(0, 160)}...`
@@ -343,8 +347,7 @@ Evaluate objectively:
 
     const userPrompt = new HumanMessage(`
 User Request: "${state.task}"
-Queries already searched: ${state.queriesHistory.map(q => `"${q}"`).join
-(", ")}
+Queries already searched: ${(state.queriesHistory || []).map(q => `"${q}"`).join(", ")}
 
 Sources collected so far (${sources.length}):
 ${sourcesSummary}
@@ -367,7 +370,7 @@ ${sourcesSummary}
 
     if (!isSufficient && !nextQuery) {
         // Fallback next query if model didn't specify one
-        nextQuery = `${state.task} syllabus curriculum projects`;
+        nextQuery = `${state.task} detailed guide`;
     }
 
     console.log(`[evaluateSufficiencyNode] Decision: ${isSufficient ? "SUFFICIENT" : "INSUFFICIENT"}. Reason: "${reason}"`);
@@ -387,7 +390,7 @@ ${sourcesSummary}
         return {
             iteration: iteration + 1,
             currentQuery: nextQuery,
-            queriesHistory: [nextQuery],
+            queriesHistory: [...(state.queriesHistory || []), nextQuery],
             evaluation: {
                 sufficient: false,
                 reason,
@@ -405,7 +408,7 @@ ${sourcesSummary}
 export const synthesizeReportNode = async (state: ResearchState, config?: RunnableConfig): Promise<Partial<ResearchState>> => {
     console.log("--- [NODE: synthesizeReportNode] Generating Final Report ---");
 
-    const llm = getLocalLLm(0.6);
+    const llm = cloudLLM(0.6);
     const sources = state.sources || [];
     const relevantChunks = state.relevantChunks || [];
     const route = state.route || "NEW_TOPIC_RESEARCH";
@@ -457,6 +460,11 @@ GUIDELINES:
 4. Conclude with actionable takeaways, next steps, or a roadmap relevant to the user's query.
 5. Format with rich Markdown: headers (##, ###), bullet points, and tables where applicable.
 6. Strictly stick to verified information. Do not invent unverified sources or source numbers outside the list.
+7. GROUNDING & HONESTY (ANTI-HALLUCINATION):
+   - Never invent claims or falsely attribute tools/companies to industries or geographies.
+   - If the user asks about a specific country, market, or industry (e.g., Nepal supply chain, healthcare, agriculture) and the retrieved sources DO NOT explicitly discuss local operations for that sector, CLEARLY STATE that verified local data is unavailable in the current sources.
+   - DO NOT fabricate that a general digital marketing tool or foreign company operates in or solves problems for an unrelated domain in Nepal.
+   - Distinguish clearly between global concepts/tools and verified local market initiatives.
         `.trim());
 
         userPrompt = new HumanMessage(`
@@ -483,9 +491,16 @@ Synthesize a complete, definitive answer with numbered citations:
     const totalMsgCount = (state.messages?.length || 0) + 1;
     if (totalMsgCount >= 3) {
         try {
-            const summaryLlm = withLLMStructuredOutput(conversationSummarySchema, 0.2);
+            const summaryLlm = withLLMStructuredOutput(conversationSummarySchema, cloudLLM(0.2));
             const historySample = [...(state.messages || []).slice(-4), newAIMsg]
-                .map(m => `${m.getType() === "human" ? "User" : "Assistant"}: ${m.content.slice(0, 200)}`)
+                .map(m => {
+                    const raw = m.content.toString();
+                    const clean = raw
+                        .replace(/<think>[\s\S]*?<\/think>/gi, "")
+                        .replace(/\[(?:Planning Strategy|Evaluating Sources|Synthesizing Final Report)[^\]]*\][\s\S]*?(?=\n\n|$)/gi, "")
+                        .trim();
+                    return `${m.getType() === "human" ? "User" : "Assistant"}: ${clean.slice(0, 300)}`;
+                })
                 .join("\n");
 
             const sumPrompt = new SystemMessage(
