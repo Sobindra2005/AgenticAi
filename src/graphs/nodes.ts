@@ -343,7 +343,8 @@ Evaluate objectively:
 
     const userPrompt = new HumanMessage(`
 User Request: "${state.task}"
-Queries already searched: ${state.queriesHistory.map(q => `"${q}"`).join(", ")}
+Queries already searched: ${state.queriesHistory.map(q => `"${q}"`).join
+(", ")}
 
 Sources collected so far (${sources.length}):
 ${sourcesSummary}
