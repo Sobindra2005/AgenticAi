@@ -10,5 +10,6 @@ router.put("/:id", ThreadController.updateThread);
 router.post("/:id/save", ThreadController.saveThreadAssets);
 router.delete("/:id", ThreadController.deleteThread);
 router.post("/:id/clear", ThreadController.clearThread);
+router.put("/:id/messages/:messageId/report", ThreadController.updateMessageReport);
 
 export default router;

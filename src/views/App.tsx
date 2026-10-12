@@ -301,6 +301,24 @@ export const App: React.FC<AppProps> = ({
     }
   };
 
+  // Update a message's synthesized report (e.g. after repairing a Mermaid diagram)
+  const handleUpdateMessageReport = (
+    messageIdentifier: string | number,
+    updatedReport: string
+  ) => {
+    setMessages((prev) =>
+      prev.map((m, idx) => {
+        const isMatch = m.id === messageIdentifier || idx === messageIdentifier;
+        if (!isMatch) return m;
+        return {
+          ...m,
+          report: updatedReport,
+          content: updatedReport,
+        };
+      })
+    );
+  };
+
   // Submit research query and stream response
   const handleSubmitQuery = async (query: string) => {
     let currentId = activeThreadId;
@@ -571,6 +589,7 @@ export const App: React.FC<AppProps> = ({
           onSubmitQuery={handleSubmitQuery}
           onAddToKb={handleAddToKb}
           onClearTraces={handleClearTraces}
+          onUpdateMessageReport={handleUpdateMessageReport}
         />
       )}
     </>

@@ -56,7 +56,7 @@ export const retrieveFromKBNode = async (
             const kbUrls = new Set(kbEntries.map(k => k.sourceUrl));
             const kbSources = state.sources.filter(s => kbUrls.has(s.url) && s.content);
             if (kbSources.length > 0) {
-                await syncKnowledgeBaseVectors(threadId, kbSources, kbUrls);
+                await syncKnowledgeBaseVectors(threadId, kbSources);
             }
         }
 
@@ -439,7 +439,7 @@ export const synthesizeReportNode = async (state: ResearchState, config?: Runnab
         systemPrompt = new SystemMessage(`
 You are a helpful and intelligent AI research assistant.
 Answer the user's current request directly using the recent conversation context.
-Format cleanly with Markdown (using tables, bullet points, or code blocks where requested).
+Format cleanly with Markdown (using tables, bullet points, or standard \`\`\`mermaid code blocks for any workflows, architectures, or timelines).
         `.trim());
 
         userPrompt = new HumanMessage(`
@@ -465,6 +465,22 @@ GUIDELINES:
    - If the user asks about a specific country, market, or industry (e.g., Nepal supply chain, healthcare, agriculture) and the retrieved sources DO NOT explicitly discuss local operations for that sector, CLEARLY STATE that verified local data is unavailable in the current sources.
    - DO NOT fabricate that a general digital marketing tool or foreign company operates in or solves problems for an unrelated domain in Nepal.
    - Distinguish clearly between global concepts/tools and verified local market initiatives.
+8. DIAGRAMS & VISUALIZATIONS (MERMAID EXCLUSIVE):
+   - Whenever explaining a workflow, system architecture, decision tree, lifecycle, data model, or roadmap, ALWAYS use standard Mermaid diagrams (\`\`\`mermaid ... \`\`\`). NEVER use ASCII art, external images, or SVG embeds.
+   - Supported Diagram Types:
+     • Flowchart: flowchart TD or flowchart LR
+     • Sequence: sequenceDiagram
+     • Class: classDiagram
+     • State: stateDiagram-v2
+     • Entity Relationship: erDiagram
+     • User Journey: journey
+     • Project Roadmap / Timeline: gantt
+     • Proportions / Distributions: pie title "..."
+   - CRITICAL MERMAID SYNTAX RULES (Prevent Parser Failures):
+     • ALWAYS wrap node labels with special characters (brackets, parentheses, colons, slashes) in double quotes: e.g., A["Client (Mobile/Web)"] --> B["API Service"].
+     • Never use reserved Mermaid keywords ('end', 'subgraph', 'graph', 'class', 'state') as raw node IDs.
+     • Do NOT include HTML tags ('<br>', '<b>') or Markdown formatting ('**bold**') inside node text.
+     • Every diagram MUST begin with its valid diagram type header on the very first line.
         `.trim());
 
         userPrompt = new HumanMessage(`

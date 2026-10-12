@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { runWorkflow, streamResearchWorkflow } from "../workflow.js";
 import { renderAppPage } from "../views/ssr.js";
 import { ThreadService } from "../services/thread.service.js";
+import { DiagramService } from "../services/diagram.service.js";
 
 export const ResearchController = {
   /**
@@ -67,6 +68,44 @@ export const ResearchController = {
       return res.json(result);
     } catch (error) {
       return res.status(500).json({ error: (error as Error).message });
+    }
+  },
+
+  /**
+   * POST /api/diagram/fix
+   * Self-heals broken Mermaid diagram code using local LLM and persists updated report if messageId provided.
+   */
+  async fixDiagram(req: Request, res: Response) {
+    const healId = Math.random().toString(36).substring(2, 8);
+    try {
+      const { brokenCode, errorMessage, messageId, threadId, updatedReport } = req.body;
+      if (!brokenCode) {
+        return res.status(400).json({ error: "brokenCode is required" });
+      }
+
+      const repairResult = await DiagramService.repairMermaidSyntax(
+        String(brokenCode),
+        String(errorMessage || ""),
+        healId
+      );
+
+      // If client supplied messageId and the newly updated report string, persist to DB immediately
+      if (messageId && updatedReport) {
+        await ThreadService.updateMessageReport(String(messageId), String(updatedReport));
+        console.log(`[Self-Heal #${healId}] 💾 Updated report synchronized to database for message: "${messageId}"`);
+      }
+
+      return res.json({
+        success: true,
+        fixedCode: repairResult.fixedCode,
+        debug: repairResult.debug,
+      });
+    } catch (error) {
+      console.error(`[Self-Heal #${healId}] ❌ Repair exception:`, error);
+      return res.status(500).json({
+        error: (error as Error).message,
+        debug: { healId, failed: true, error: (error as Error).message },
+      });
     }
   },
 

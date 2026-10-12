@@ -69,19 +69,15 @@ export async function syncKnowledgeBaseVectors(
 ): Promise<number> {
   if (!isValidUuid(threadId)) return 0;
 
-  // 1. If activeKbUrls is supplied, prune chunks for sources removed from the Knowledge Base
-  if (activeKbUrls) {
+  // 1. If activeKbUrls is supplied and non-empty, prune chunks for sources removed from the Knowledge Base.
+  // Never delete all chunks here; complete wipeout belongs exclusively to explicit clearThread().
+  if (activeKbUrls && activeKbUrls.size > 0) {
     const urls = Array.from(activeKbUrls);
-    if (urls.length === 0) {
-      await pgClient`DELETE FROM knowledge_chunks WHERE thread_id = ${threadId}`;
-      return 0;
-    } else {
-      await pgClient`
-        DELETE FROM knowledge_chunks 
-        WHERE thread_id = ${threadId} 
-          AND NOT (source_url = ANY(${urls}))
-      `;
-    }
+    await pgClient`
+      DELETE FROM knowledge_chunks 
+      WHERE thread_id = ${threadId} 
+        AND NOT (source_url = ANY(${urls}))
+    `;
   }
 
   if (!kbSources || kbSources.length === 0) return 0;

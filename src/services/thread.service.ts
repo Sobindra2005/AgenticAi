@@ -230,10 +230,37 @@ export const ThreadService = {
       time: t.time,
     }));
 
-    // Atomically replace assets for this thread
+    // 1. Safely merge sources without deleting existing records
+    // (Preserves primary keys and prevents onDelete: cascade from wiping knowledge_chunks)
     if (sourceRows.length > 0) {
-      await db.delete(models.sources).where(eq(models.sources.threadId, threadId));
-      await db.insert(models.sources).values(sourceRows);
+      const existingSources = await db
+        .select({ id: models.sources.id, url: models.sources.url })
+        .from(models.sources)
+        .where(eq(models.sources.threadId, threadId));
+
+      const existingUrlMap = new Map(existingSources.map((s) => [s.url, s.id]));
+      const newSourceRows = sourceRows.filter((s) => !existingUrlMap.has(s.url));
+
+      if (newSourceRows.length > 0) {
+        
+        await db.insert(models.sources).values(newSourceRows);
+      }
+
+      // Refresh content for existing sources in place
+      for (const s of sourceRows) {
+        const existingId = existingUrlMap.get(s.url);
+        if (existingId && s.content && s.content.trim().length > 0) {
+          await db
+            .update(models.sources)
+            .set({
+              title: s.title,
+              content: s.content,
+              score: s.score,
+              iteration: s.iteration,
+            })
+            .where(eq(models.sources.id, existingId));
+        }
+      }
     }
 
     if (kbRows.length > 0) {
@@ -246,51 +273,141 @@ export const ThreadService = {
       await db.insert(models.traces).values(traceRows);
     }
 
+    const [allDbSources, allDbKb] = await Promise.all([
+      db.select({ count: models.sources.id }).from(models.sources).where(eq(models.sources.threadId, threadId)),
+      db.select({ count: models.knowledgeBase.id }).from(models.knowledgeBase).where(eq(models.knowledgeBase.threadId, threadId)),
+    ]);
+
     await db
       .update(models.threads)
       .set({
-        sourceCount: sourceRows.length,
-        kbCount: kbRows.length,
+        sourceCount: allDbSources.length,
+        kbCount: allDbKb.length,
         updatedAt: new Date(),
       })
       .where(eq(models.threads.id, threadId));
 
-    // 4. Vectorize and synchronize ONLY the sources in the Knowledge Base
-    const kbUrls = new Set(kbList.map((k) => k.sourceUrl));
-    const kbSourcesMap = new Map<string, SourceItem>();
+    // 4. Vectorize and synchronize ONLY if Knowledge Base entries were supplied in this batch
+    if (kbRows.length > 0) {
+      const kbUrls = new Set(kbList.map((k) => k.sourceUrl));
+      const kbSourcesMap = new Map<string, SourceItem>();
 
-    for (const s of sourcesList) {
-      if (s.url && kbUrls.has(s.url) && s.content) {
-        kbSourcesMap.set(s.url, s);
-      }
-    }
-
-    // If any KB items were not in sourcesList, retrieve full content from DB sources
-    if (kbSourcesMap.size < kbUrls.size) {
-      const dbSources = await db
-        .select()
-        .from(models.sources)
-        .where(eq(models.sources.threadId, threadId));
-      for (const d of dbSources) {
-        if (d.url && kbUrls.has(d.url) && !kbSourcesMap.has(d.url) && d.content) {
-          kbSourcesMap.set(d.url, {
-            id: d.id,
-            url: d.url,
-            title: d.title,
-            content: d.content,
-            score: d.score ?? undefined,
-            iteration: d.iteration ?? 1,
-          });
+      for (const s of sourcesList) {
+        if (s.url && kbUrls.has(s.url) && s.content) {
+          kbSourcesMap.set(s.url, s);
         }
       }
+
+      // If any KB items were not in sourcesList, retrieve full content from DB sources
+      if (kbSourcesMap.size < kbUrls.size) {
+        const dbSources = await db
+          .select()
+          .from(models.sources)
+          .where(eq(models.sources.threadId, threadId));
+        for (const d of dbSources) {
+          if (d.url && kbUrls.has(d.url) && !kbSourcesMap.has(d.url) && d.content) {
+            kbSourcesMap.set(d.url, {
+              id: d.id,
+              url: d.url,
+              title: d.title,
+              content: d.content,
+              score: d.score ?? undefined,
+              iteration: d.iteration ?? 1,
+            });
+          }
+        }
+      }
+
+      try {
+        await syncKnowledgeBaseVectors(threadId, Array.from(kbSourcesMap.values()), kbUrls);
+      } catch (vErr) {
+        console.warn("[ThreadService.saveBatchAssets] Knowledge Base vector sync error:", (vErr as Error).message);
+      }
     }
 
-    try {
-      await syncKnowledgeBaseVectors(threadId, Array.from(kbSourcesMap.values()), kbUrls);
-    } catch (vErr) {
-      console.warn("[ThreadService.saveBatchAssets] Knowledge Base vector sync error:", (vErr as Error).message);
+    return true;
+  },
+
+  /**
+   * Appends newly discovered sources to a thread without touching KB, chunks, or traces.
+   * Merges by URL: inserts new sources, updates existing ones if needed.
+   */
+  async appendSources(threadId: string, sourcesList: SourceItem[]) {
+    if (!isValidUUID(threadId) || !sourcesList || sourcesList.length === 0) return;
+
+    await this.create(threadId);
+
+    const seenUrls = new Set<string>();
+    const sourceRows: models.NewSource[] = [];
+    for (const s of sourcesList) {
+      if (!s.url || seenUrls.has(s.url)) continue;
+      seenUrls.add(s.url);
+      sourceRows.push({
+        threadId,
+        url: s.url,
+        title: s.title || "Untitled",
+        content: s.content || "",
+        score: s.score ?? null,
+        iteration: s.iteration ?? 1,
+      });
     }
 
+    if (sourceRows.length === 0) return;
+
+    const existingSources = await db
+      .select({ id: models.sources.id, url: models.sources.url })
+      .from(models.sources)
+      .where(eq(models.sources.threadId, threadId));
+
+    const existingUrlMap = new Map(existingSources.map((s) => [s.url, s.id]));
+    const newSourceRows = sourceRows.filter((s) => !existingUrlMap.has(s.url));
+
+    if (newSourceRows.length > 0) {
+      await db.insert(models.sources).values(newSourceRows);
+    }
+
+    // Refresh content for existing sources if needed
+    for (const s of sourceRows) {
+      const existingId = existingUrlMap.get(s.url);
+      if (existingId && s.content && s.content.trim().length > 0) {
+        await db
+          .update(models.sources)
+          .set({
+            title: s.title,
+            content: s.content,
+            score: s.score,
+            iteration: s.iteration,
+          })
+          .where(eq(models.sources.id, existingId));
+      }
+    }
+
+    const totalSources = await db
+      .select({ count: models.sources.id })
+      .from(models.sources)
+      .where(eq(models.sources.threadId, threadId));
+
+    await db
+      .update(models.threads)
+      .set({
+        sourceCount: totalSources.length,
+        updatedAt: new Date(),
+      })
+      .where(eq(models.threads.id, threadId));
+  },
+
+  /**
+   * Updates an existing message's report and content (e.g. after repairing a Mermaid diagram).
+   */
+  async updateMessageReport(messageId: string, updatedReport: string) {
+    if (!isValidUUID(messageId) || !updatedReport) return false;
+    await db
+      .update(models.messages)
+      .set({
+        report: updatedReport,
+        content: updatedReport,
+      })
+      .where(eq(models.messages.id, messageId));
     return true;
   },
 

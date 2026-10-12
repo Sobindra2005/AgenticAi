@@ -290,6 +290,7 @@ export async function* streamResearchWorkflow(
   }
 
   // Persist assistant response and gathered assets to PostgreSQL via Drizzle
+  let currentThreadKb: KnowledgeBaseEntry[] = [];
   if (threadId) {
     const completeReport = finalReport || accumulatedReport;
     try {
@@ -297,7 +298,11 @@ export async function* streamResearchWorkflow(
         report: completeReport,
         iterations: currentIteration,
       });
-      await ThreadService.saveBatchAssets(threadId, accumulatedSources, accumulatedKB);
+      if (accumulatedSources.length > 0) {
+        await ThreadService.appendSources(threadId, accumulatedSources);
+      }
+      const fullData = await ThreadService.getFullData(threadId);
+      currentThreadKb = fullData.kb || [];
     } catch (e) {
       console.error("[streamResearchWorkflow] Failed to persist thread completion to database:", e);
     }
@@ -308,7 +313,7 @@ export async function* streamResearchWorkflow(
     type: "done",
     finalReport: finalReport || accumulatedReport,
     sources: accumulatedSources,
-    knowledgeBase: accumulatedKB,
+    knowledgeBase: currentThreadKb,
     queries: queriesHistory,
     iterations: currentIteration,
   };

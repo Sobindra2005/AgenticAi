@@ -114,4 +114,23 @@ export const ThreadController = {
       return res.status(500).json({ error: (error as Error).message });
     }
   },
+
+  /**
+   * PUT /api/threads/:id/messages/:messageId/report
+   * Updates an assistant message's report content (e.g. after repairing a Mermaid diagram).
+   */
+  async updateMessageReport(req: Request, res: Response) {
+    try {
+      const messageId = String(req.params.messageId);
+      const { report } = req.body;
+      if (!report) {
+        return res.status(400).json({ error: "report is required" });
+      }
+      const success = await ThreadService.updateMessageReport(messageId, String(report));
+      return res.json({ success });
+    } catch (error) {
+      console.error("[ThreadController.updateMessageReport]", error);
+      return res.status(500).json({ error: (error as Error).message });
+    }
+  },
 };

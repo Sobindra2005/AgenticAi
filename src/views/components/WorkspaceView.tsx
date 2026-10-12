@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import MarkdownIt from "markdown-it";
 import { VaultDrawer, TraceStep } from "./VaultDrawer.js";
 import { SourceItem, KnowledgeBaseEntry } from "../../graphs/state.js";
+import { MermaidDiagram } from "./MermaidDiagram.js";
 
 const md = new MarkdownIt({
   html: true,
@@ -45,6 +46,58 @@ interface WorkspaceViewProps {
   onSubmitQuery: (query: string) => void;
   onAddToKb: (sources: SourceItem[]) => void;
   onClearTraces: () => void;
+  onUpdateMessageReport?: (messageIdentifier: string | number, updatedReport: string) => void;
+}
+
+interface ReportSegment {
+  type: "markdown" | "mermaid" | "mermaid-streaming";
+  content: string;
+}
+
+function parseReportSegments(reportText: string): ReportSegment[] {
+  if (!reportText) return [];
+
+  const segments: ReportSegment[] = [];
+  const mermaidRegex = /```mermaid\s*([\s\S]*?)(?:```|$)/gi;
+
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = mermaidRegex.exec(reportText)) !== null) {
+    const fullMatch = match[0];
+    const startIndex = match.index;
+
+    if (startIndex > lastIndex) {
+      const mdChunk = reportText.slice(lastIndex, startIndex);
+      if (mdChunk.trim().length > 0) {
+        segments.push({ type: "markdown", content: mdChunk });
+      }
+    }
+
+    const isClosed = fullMatch.endsWith("```");
+    const innerCode = match[1]?.trim() || "";
+
+    if (isClosed && innerCode.length > 0) {
+      segments.push({ type: "mermaid", content: innerCode });
+    } else if (!isClosed) {
+      segments.push({ type: "mermaid-streaming", content: innerCode });
+    }
+
+    lastIndex = startIndex + fullMatch.length;
+  }
+
+  if (lastIndex < reportText.length) {
+    const remaining = reportText.slice(lastIndex);
+    if (remaining.trim().length > 0) {
+      segments.push({ type: "markdown", content: remaining });
+    }
+  }
+
+  if (segments.length === 0 && reportText.length > 0) {
+    segments.push({ type: "markdown", content: reportText });
+  }
+
+  return segments;
 }
 
 function extractDomain(urlStr: string): string {
@@ -144,6 +197,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   onSubmitQuery,
   onAddToKb,
   onClearTraces,
+  onUpdateMessageReport,
 }) => {
   const [inputText, setInputText] = useState("");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
@@ -497,9 +551,57 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                   {/* Final Report Body */}
                   <div
                     className="report-content"
-                    dangerouslySetInnerHTML={{ __html: reportHtml }}
                     onMouseOver={handleCitationMouseOver}
-                  />
+                  >
+                    {parseReportSegments(msg.report || msg.content || "").map(
+                      (segment, segIdx) => {
+                        if (segment.type === "mermaid") {
+                          return (
+                            <MermaidDiagram
+                              key={`mermaid-${msg.id || idx}-${segIdx}`}
+                              code={segment.content}
+                              messageId={msg.id}
+                              threadId={activeThreadId || undefined}
+                              fullReport={msg.report || msg.content || ""}
+                              onCodeRepaired={(oldCode, newCode) => {
+                                if (onUpdateMessageReport) {
+                                  const currentRep = msg.report || msg.content || "";
+                                  const updated = currentRep.replace(oldCode, newCode);
+                                  onUpdateMessageReport(msg.id || idx, updated);
+                                }
+                              }}
+                            />
+                          );
+                        }
+
+                        if (segment.type === "mermaid-streaming") {
+                          return (
+                            <div key={`streaming-${segIdx}`} className="mermaid-diagram-card">
+                              <div className="mermaid-card-body">
+                                <div className="mermaid-status-box validating">
+                                  <div className="spinner"></div>
+                                  <span>Generating Mermaid diagram...</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // Regular Markdown segment
+                        const segmentHtml = enhanceCitationsWithTooltips(
+                          md.render(segment.content),
+                          effectiveSources
+                        );
+                        return (
+                          <div
+                            key={`md-${segIdx}`}
+                            className="report-markdown-segment"
+                            dangerouslySetInnerHTML={{ __html: segmentHtml }}
+                          />
+                        );
+                      }
+                    )}
+                  </div>
                 </div>
               );
             })}

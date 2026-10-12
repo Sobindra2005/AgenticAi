@@ -1767,3 +1767,706 @@ body::before {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ==========================================================================
+   Mermaid Diagram Card & Interactive Canvas
+   ========================================================================== */
+.mermaid-diagram-card {
+  margin: 20px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0b0f19;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.2s ease;
+}
+
+.mermaid-diagram-card:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.mermaid-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: rgba(15, 23, 42, 0.85);
+  border-bottom: 1px solid var(--line);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 12px;
+}
+
+.mermaid-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mermaid-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.mermaid-tab-group {
+  display: inline-flex;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mermaid-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mermaid-tab-btn:hover {
+  color: var(--ink);
+}
+
+.mermaid-tab-btn.active {
+  background: var(--accent);
+  color: #0b0f19;
+  font-weight: 600;
+}
+
+.mermaid-action-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.mermaid-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent);
+}
+
+/* Zoom & Scale Controls */
+.mermaid-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 1px;
+}
+
+.mermaid-zoom-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.mermaid-zoom-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+}
+
+.mermaid-zoom-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  padding: 0 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mermaid-zoom-val:hover {
+  color: var(--accent);
+}
+
+.mermaid-card-body {
+  padding: 16px;
+  background: #080c14;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Interactive Drag-to-Pan Viewport & Canvas */
+.mermaid-viewport {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  min-height: 320px;
+  max-height: 620px;
+  background: radial-gradient(circle at 50% 50%, #0d1527 0%, #060912 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.mermaid-viewport.panning {
+  cursor: grabbing;
+}
+
+.mermaid-canvas-layer {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  will-change: transform;
+  padding: 30px;
+}
+
+/* Unconstrained SVG sizing - preserves natural width so wide diagrams never get squashed */
+.mermaid-canvas-layer svg {
+  max-width: none !important;
+  max-height: none !important;
+  height: auto !important;
+  display: block;
+}
+
+.mermaid-drag-hint {
+  position: absolute;
+  bottom: 10px;
+  right: 14px;
+  background: rgba(10, 15, 29, 0.82);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  pointer-events: none;
+  opacity: 0.75;
+  transition: all 0.2s ease;
+}
+
+.mermaid-viewport:hover .mermaid-drag-hint {
+  opacity: 1;
+  color: var(--accent);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.reset-view-btn {
+  color: var(--accent) !important;
+  border-color: rgba(56, 189, 248, 0.3) !important;
+}
+
+/* Enforce sleek dark palette & comfortable readable typography */
+.mermaid-canvas-layer svg .node rect,
+.mermaid-canvas-layer svg .node circle,
+.mermaid-canvas-layer svg .node ellipse,
+.mermaid-canvas-layer svg .node polygon,
+.mermaid-canvas-layer svg .node path,
+.mermaid-svg-container svg .node rect,
+.mermaid-svg-container svg .node circle,
+.mermaid-svg-container svg .node ellipse,
+.mermaid-svg-container svg .node polygon,
+.mermaid-svg-container svg .node path {
+  fill: #0f172a !important;
+  stroke: #38bdf8 !important;
+  stroke-width: 1.75px !important;
+  rx: 8px !important;
+  ry: 8px !important;
+}
+
+.mermaid-canvas-layer svg .node .label,
+.mermaid-canvas-layer svg .node text,
+.mermaid-canvas-layer svg .actor,
+.mermaid-canvas-layer svg text.actor > tspan,
+.mermaid-svg-container svg .node .label,
+.mermaid-svg-container svg .node text,
+.mermaid-svg-container svg .actor,
+.mermaid-svg-container svg text.actor > tspan {
+  color: #f8fafc !important;
+  fill: #f8fafc !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em !important;
+}
+
+.mermaid-canvas-layer svg .edgePath .path,
+.mermaid-canvas-layer svg .flowchart-link,
+.mermaid-svg-container svg .edgePath .path,
+.mermaid-svg-container svg .flowchart-link {
+  stroke: #38bdf8 !important;
+  stroke-width: 1.5px !important;
+}
+
+.mermaid-canvas-layer svg marker path,
+.mermaid-svg-container svg marker path {
+  fill: #38bdf8 !important;
+  stroke: #38bdf8 !important;
+}
+
+.mermaid-canvas-layer svg .edgeLabel,
+.mermaid-svg-container svg .edgeLabel {
+  background-color: #080c14 !important;
+  color: #cbd5e1 !important;
+  fill: #cbd5e1 !important;
+  font-size: 12px !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+}
+
+.mermaid-canvas-layer svg .cluster rect,
+.mermaid-svg-container svg .cluster rect {
+  fill: rgba(15, 23, 42, 0.5) !important;
+  stroke: #334155 !important;
+}
+
+/* Status Loaders & Healing States */
+.mermaid-status-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+}
+
+.mermaid-status-box.validating {
+  background: rgba(56, 189, 248, 0.06);
+  border: 1px dashed rgba(56, 189, 248, 0.3);
+  color: #93c5fd;
+}
+
+.mermaid-status-box.healing {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+}
+
+.spinner-healing {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(245, 158, 11, 0.2);
+  border-top-color: #f59e0b;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.healing-text-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.healing-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #fde68a;
+}
+
+.healing-subtitle {
+  font-size: 11px;
+  color: rgba(253, 230, 138, 0.8);
+}
+
+.mermaid-status-box.error {
+  flex-direction: column;
+  align-items: flex-start;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  gap: 8px;
+}
+
+.error-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #f87171;
+}
+
+.error-detail {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.error-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Raw Code Viewer */
+.mermaid-code-view {
+  background: #05080f;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+
+.mermaid-code-view pre {
+  margin: 0;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #38bdf8;
+}
+
+/* ==========================================================================
+   Self-Healing Diagnostics & Debug Tracking
+   ========================================================================== */
+.mermaid-debug-trigger-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid transparent;
+}
+
+.mermaid-debug-trigger-badge.success {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+}
+
+.mermaid-debug-trigger-badge.success:hover {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #34d399;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.28);
+}
+
+.mermaid-debug-trigger-badge.failed {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.mermaid-debug-trigger-badge.failed:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #f87171;
+}
+
+.debug-badge-icon {
+  font-size: 12px;
+}
+
+.debug-badge-title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.debug-badge-meta {
+  opacity: 0.75;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+}
+
+.debug-badge-arrow {
+  font-size: 8px;
+  opacity: 0.8;
+  margin-left: 2px;
+}
+
+/* Expandable Debug Drawer */
+.mermaid-debug-drawer {
+  background: #070b14;
+  border-bottom: 1px solid var(--line);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: debugDrawerOpen 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes debugDrawerOpen {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.debug-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.debug-drawer-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.debug-drawer-icon {
+  font-size: 14px;
+}
+
+.debug-drawer-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+
+.debug-drawer-id {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(56, 189, 248, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.debug-drawer-status-pill .status-success {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.debug-drawer-status-pill .status-failed {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+/* Telemetry Metrics Grid */
+.debug-telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.debug-metric-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.metric-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.metric-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.metric-val.model {
+  color: #a78bfa;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.metric-val.time {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Sections & Boxes */
+.debug-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.debug-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.error-dot {
+  color: #f87171;
+  font-size: 10px;
+}
+
+.reasoning-dot {
+  color: #a78bfa;
+  font-size: 11px;
+}
+
+.debug-error-box {
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  border-radius: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+}
+
+.debug-error-box code {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: #fca5a5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.debug-reasoning-box {
+  background: rgba(139, 92, 246, 0.05);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 6px;
+  padding: 10px 12px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.debug-reasoning-box pre {
+  margin: 0;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #ddd6fe;
+  white-space: pre-wrap;
+}
+
+/* Diff Comparison Grid */
+.debug-diff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .debug-diff-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.diff-card {
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #040710;
+}
+
+.diff-card.broken {
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.diff-card.repaired {
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.diff-header {
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.diff-header.broken {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.diff-header.repaired {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.diff-card pre {
+  margin: 0;
+  padding: 10px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  max-height: 160px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.diff-card.broken pre code {
+  color: #fca5a5;
+}
+
+.diff-card.repaired pre code {
+  color: #a7f3d0;
+}
+
+/* Title row in healing loader */
+.healing-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.healing-attempt-pill {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fde68a;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
