@@ -184,6 +184,189 @@ function enhanceCitationsWithTooltips(html: string, sourcesList: SourceItem[]): 
     .join("");
 }
 
+interface MessageItemViewProps {
+  msg: MessageItem;
+  idx: number;
+  sources: SourceItem[];
+  activeThreadId: string | null;
+  onUpdateMessageReport?: (messageIdentifier: string | number, updatedReport: string) => void;
+  onCitationMouseOver: (e: React.MouseEvent<HTMLDivElement>) => void;
+}
+
+const MessageItemView = React.memo<MessageItemViewProps>(
+  ({ msg, idx, sources, activeThreadId, onUpdateMessageReport, onCitationMouseOver }) => {
+    if (msg.role === "user") {
+      return (
+        <div key={msg.id || idx} className="user-message">
+          {msg.content}
+        </div>
+      );
+    }
+
+    // Assistant Message
+    const effectiveSources = msg.sources && msg.sources.length > 0 ? msg.sources : sources;
+
+    return (
+      <div key={msg.id || idx} className="assistant-message">
+        {/* Stepper only shown if there are streaming steps or rounds */}
+        {(msg.isStreaming ||
+          (msg.rounds && msg.rounds.length > 0) ||
+          msg.thinking) && (
+          <div className="research-stepper">
+            <div className="stepper-header">
+              <div className="stepper-status">
+                {msg.isStreaming && <div className="spinner"></div>}
+                <span>
+                  {msg.statusText ||
+                    (msg.isStreaming
+                      ? "Executing research workflow..."
+                      : "Research completed")}
+                </span>
+              </div>
+              <span className="badge badge-accent">
+                Loop {msg.iterations || 1}/3
+              </span>
+            </div>
+
+            {/* Search Rounds */}
+            {msg.rounds && (
+              <div className="stepper-rounds">
+                {msg.rounds.map((round, ridx) => (
+                  <div key={ridx} className="round-node">
+                    <div className="round-badge-row">
+                      <span className="badge badge-accent">
+                        Round {round.iteration} Search
+                      </span>
+                      <span className="search-pill">
+                        🔍 {round.query}
+                      </span>
+                    </div>
+                    {round.sources && round.sources.length > 0 && (
+                      <div className="sources-tray">
+                        {round.sources.map((s, sidx) => (
+                          <a
+                            key={sidx}
+                            className="source-chip"
+                            href={s.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <span>{extractDomain(s.url)}</span>
+                            <span className="pill-new">+NEW</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                    {round.decision && (
+                      <div
+                        className={`decision-box ${
+                          round.decision.sufficient
+                            ? "decision-sufficient"
+                            : "decision-insufficient"
+                        }`}
+                      >
+                        <div className="decision-header">
+                          {round.decision.sufficient
+                            ? "✓ Research Concluded"
+                            : "⚡ Need Deeper Search"}
+                        </div>
+                        <div>{round.decision.reason}</div>
+                        {round.decision.nextQuery && (
+                          <div
+                            style={{
+                              fontFamily: "'DM Mono', monospace",
+                              fontSize: "11px",
+                              marginTop: "4px",
+                              color: "var(--ink)",
+                            }}
+                          >
+                            Next targeted query: "
+                            {round.decision.nextQuery}"
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Reasoning Process Block */}
+            {msg.thinking && (
+              <div className="think-block">
+                <details open>
+                  <summary>Thinking & Reasoning Process</summary>
+                  <div
+                    className="think-content"
+                    style={{ whiteSpace: "pre-wrap" }}
+                  >
+                    {msg.thinking}
+                  </div>
+                </details>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Final Report Body */}
+        <div
+          className="report-content"
+          onMouseOver={onCitationMouseOver}
+        >
+          {parseReportSegments(msg.report || msg.content || "").map(
+            (segment, segIdx) => {
+              if (segment.type === "mermaid") {
+                return (
+                  <MermaidDiagram
+                    key={`mermaid-${msg.id || idx}-${segIdx}`}
+                    code={segment.content}
+                    messageId={msg.id}
+                    threadId={activeThreadId || undefined}
+                    fullReport={msg.report || msg.content || ""}
+                    onCodeRepaired={(oldCode, newCode) => {
+                      if (onUpdateMessageReport) {
+                        const currentRep = msg.report || msg.content || "";
+                        const updated = currentRep.replace(oldCode, newCode);
+                        onUpdateMessageReport(msg.id || idx, updated);
+                      }
+                    }}
+                  />
+                );
+              }
+
+              if (segment.type === "mermaid-streaming") {
+                return (
+                  <div key={`streaming-${segIdx}`} className="mermaid-diagram-card">
+                    <div className="mermaid-card-body">
+                      <div className="mermaid-status-box validating">
+                        <div className="spinner"></div>
+                        <span>Generating Mermaid diagram...</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Regular Markdown segment
+              const segmentHtml = enhanceCitationsWithTooltips(
+                md.render(segment.content),
+                effectiveSources
+              );
+              return (
+                <div
+                  key={`md-${segIdx}`}
+                  className="report-markdown-segment"
+                  dangerouslySetInnerHTML={{ __html: segmentHtml }}
+                />
+              );
+            }
+          )}
+        </div>
+      </div>
+    );
+  }
+);
+
 export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   activeThreadId,
   activeThreadTitle,
@@ -204,6 +387,8 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
   const isAutoScrollEnabled = useRef(true);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
+  const lastScrollTopRef = useRef<number>(0);
+  const touchStartYRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Scroll to bottom helper
@@ -219,12 +404,47 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     }
   };
 
+  // Immediate disengagement of auto-scroll when user spins wheel UP
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.deltaY < 0) {
+      // User is scrolling upwards away from bottom: release auto-scroll immediately
+      isAutoScrollEnabled.current = false;
+    }
+  };
+
+  // Immediate disengagement of auto-scroll when user touches/swipes to scroll UP
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    touchStartYRef.current = e.touches[0]?.clientY ?? null;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (touchStartYRef.current !== null && e.touches[0]) {
+      const currentY = e.touches[0].clientY;
+      if (currentY > touchStartYRef.current) {
+        // Dragging downwards to scroll upwards
+        isAutoScrollEnabled.current = false;
+      }
+    }
+  };
+
   // Detect whether user is at bottom or manually scrolled up
   const handleScroll = () => {
     if (!chatHistoryRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = chatHistoryRef.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 60;
-    isAutoScrollEnabled.current = isAtBottom;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const prevScrollTop = lastScrollTopRef.current;
+    lastScrollTopRef.current = scrollTop;
+
+    // Any upward scroll immediately disables auto-scrolling (no 60px fighting zone)
+    if (scrollTop < prevScrollTop - 1) {
+      isAutoScrollEnabled.current = false;
+    } else if (distanceFromBottom <= 20) {
+      // Only re-enable auto-scroll when user has intentionally scrolled back down to the very bottom
+      isAutoScrollEnabled.current = true;
+    }
+
+    // Toggle scroll-to-latest button visibility
+    const isAtBottom = distanceFromBottom <= 30;
     if (isAtBottom) {
       setShowScrollBottom(false);
       setHasNewMessagesBelow(false);
@@ -237,7 +457,11 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   useEffect(() => {
     if (isAutoScrollEnabled.current) {
       if (chatHistoryRef.current) {
-        chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+        requestAnimationFrame(() => {
+          if (chatHistoryRef.current && isAutoScrollEnabled.current) {
+            chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+          }
+        });
       }
       setShowScrollBottom(false);
       setHasNewMessagesBelow(false);
@@ -257,6 +481,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     const timer = setTimeout(() => {
       if (chatHistoryRef.current) {
         chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+        lastScrollTopRef.current = chatHistoryRef.current.scrollTop;
       }
     }, 50);
     return () => clearTimeout(timer);
@@ -411,6 +636,9 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
             className="chat-history"
             ref={chatHistoryRef}
             onScroll={handleScroll}
+            onWheel={handleWheel}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
           >
             {messages.length === 0 && (
               <div
@@ -430,181 +658,17 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
               </div>
             )}
 
-            {messages.map((msg, idx) => {
-              if (msg.role === "user") {
-                return (
-                  <div key={msg.id || idx} className="user-message">
-                    {msg.content}
-                  </div>
-                );
-              }
-
-              // Assistant Message
-              const effectiveSources = (msg.sources && msg.sources.length > 0)
-                ? msg.sources
-                : sources;
-              const rawReportHtml = md.render(msg.report || msg.content || "");
-              const reportHtml = enhanceCitationsWithTooltips(rawReportHtml, effectiveSources);
-
-              return (
-                <div key={msg.id || idx} className="assistant-message">
-                  {/* Stepper only shown if there are streaming steps or rounds */}
-                  {(msg.isStreaming ||
-                    (msg.rounds && msg.rounds.length > 0) ||
-                    msg.thinking) && (
-                    <div className="research-stepper">
-                      <div className="stepper-header">
-                        <div className="stepper-status">
-                          {msg.isStreaming && <div className="spinner"></div>}
-                          <span>
-                            {msg.statusText ||
-                              (msg.isStreaming
-                                ? "Executing research workflow..."
-                                : "Research completed")}
-                          </span>
-                        </div>
-                        <span className="badge badge-accent">
-                          Loop {msg.iterations || 1}/3
-                        </span>
-                      </div>
-
-                      {/* Search Rounds */}
-                      {msg.rounds && (
-                        <div className="stepper-rounds">
-                          {msg.rounds.map((round, ridx) => (
-                            <div key={ridx} className="round-node">
-                              <div className="round-badge-row">
-                                <span className="badge badge-accent">
-                                  Round {round.iteration} Search
-                                </span>
-                                <span className="search-pill">
-                                  🔍 {round.query}
-                                </span>
-                              </div>
-                              {round.sources && round.sources.length > 0 && (
-                                <div className="sources-tray">
-                                  {round.sources.map((s, sidx) => (
-                                    <a
-                                      key={sidx}
-                                      className="source-chip"
-                                      href={s.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                    >
-                                      <span>{extractDomain(s.url)}</span>
-                                      <span className="pill-new">+NEW</span>
-                                    </a>
-                                  ))}
-                                </div>
-                              )}
-                              {round.decision && (
-                                <div
-                                  className={`decision-box ${
-                                    round.decision.sufficient
-                                      ? "decision-sufficient"
-                                      : "decision-insufficient"
-                                  }`}
-                                >
-                                  <div className="decision-header">
-                                    {round.decision.sufficient
-                                      ? "✓ Research Concluded"
-                                      : "⚡ Need Deeper Search"}
-                                  </div>
-                                  <div>{round.decision.reason}</div>
-                                  {round.decision.nextQuery && (
-                                    <div
-                                      style={{
-                                        fontFamily: "'DM Mono', monospace",
-                                        fontSize: "11px",
-                                        marginTop: "4px",
-                                        color: "var(--ink)",
-                                      }}
-                                    >
-                                      Next targeted query: "
-                                      {round.decision.nextQuery}"
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Reasoning Process Block */}
-                      {msg.thinking && (
-                        <div className="think-block">
-                          <details open>
-                            <summary>Thinking & Reasoning Process</summary>
-                            <div
-                              className="think-content"
-                              style={{ whiteSpace: "pre-wrap" }}
-                            >
-                              {msg.thinking}
-                            </div>
-                          </details>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Final Report Body */}
-                  <div
-                    className="report-content"
-                    onMouseOver={handleCitationMouseOver}
-                  >
-                    {parseReportSegments(msg.report || msg.content || "").map(
-                      (segment, segIdx) => {
-                        if (segment.type === "mermaid") {
-                          return (
-                            <MermaidDiagram
-                              key={`mermaid-${msg.id || idx}-${segIdx}`}
-                              code={segment.content}
-                              messageId={msg.id}
-                              threadId={activeThreadId || undefined}
-                              fullReport={msg.report || msg.content || ""}
-                              onCodeRepaired={(oldCode, newCode) => {
-                                if (onUpdateMessageReport) {
-                                  const currentRep = msg.report || msg.content || "";
-                                  const updated = currentRep.replace(oldCode, newCode);
-                                  onUpdateMessageReport(msg.id || idx, updated);
-                                }
-                              }}
-                            />
-                          );
-                        }
-
-                        if (segment.type === "mermaid-streaming") {
-                          return (
-                            <div key={`streaming-${segIdx}`} className="mermaid-diagram-card">
-                              <div className="mermaid-card-body">
-                                <div className="mermaid-status-box validating">
-                                  <div className="spinner"></div>
-                                  <span>Generating Mermaid diagram...</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        }
-
-                        // Regular Markdown segment
-                        const segmentHtml = enhanceCitationsWithTooltips(
-                          md.render(segment.content),
-                          effectiveSources
-                        );
-                        return (
-                          <div
-                            key={`md-${segIdx}`}
-                            className="report-markdown-segment"
-                            dangerouslySetInnerHTML={{ __html: segmentHtml }}
-                          />
-                        );
-                      }
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {messages.map((msg, idx) => (
+              <MessageItemView
+                key={msg.id || idx}
+                msg={msg}
+                idx={idx}
+                sources={sources}
+                activeThreadId={activeThreadId}
+                onUpdateMessageReport={onUpdateMessageReport}
+                onCitationMouseOver={handleCitationMouseOver}
+              />
+            ))}
           </div>
 
           {/* Scroll to latest floating pill */}

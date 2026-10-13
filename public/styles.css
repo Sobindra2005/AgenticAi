@@ -278,6 +278,9 @@ body::before {
   min-height: 0;
   min-width: 0;
   width: 100%;
+  overscroll-behavior-y: contain;
+  overflow-anchor: none;
+  scroll-behavior: auto;
 }
 
 /* User Message */
@@ -1927,7 +1930,7 @@ body::before {
   border-radius: 8px;
   cursor: grab;
   user-select: none;
-  touch-action: none;
+  touch-action: pan-y;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1936,6 +1939,7 @@ body::before {
 
 .mermaid-viewport.panning {
   cursor: grabbing;
+  touch-action: none;
 }
 
 .mermaid-canvas-layer {

@@ -94,7 +94,7 @@ function normalizeMermaidSvg(rawSvg: string): string {
   return modified;
 }
 
-export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
+export const MermaidDiagram: React.FC<MermaidDiagramProps> = React.memo(({
   code,
   messageId,
   threadId,
@@ -419,7 +419,9 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
 
   // Pointer / Drag-to-Pan Handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return; // Left mouse or touch only
+    // Only capture pointer for mouse/pen drag so touch gestures can scroll naturally
+    if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
+    if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button, a")) return;
 
     setIsPanning(true);
@@ -763,4 +765,4 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
       </div>
     </div>
   );
-};
+});
