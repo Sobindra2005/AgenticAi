@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { SourceItem, KnowledgeBaseEntry } from "../../graphs/state.js";
+import { SourceCardSkeleton, KbCardSkeleton, TraceStepSkeleton } from "./skeletons/index.js";
 
 export interface TraceStep {
   id: string | number;
@@ -12,6 +13,9 @@ interface VaultDrawerProps {
   sources: SourceItem[];
   kb: KnowledgeBaseEntry[];
   traces: TraceStep[];
+  isLoadingSources?: boolean;
+  isLoadingKb?: boolean;
+  isLoadingTraces?: boolean;
   onAddToKb: (selectedSources: SourceItem[]) => void;
   onClearTraces: () => void;
   activeThreadId?: string | null;
@@ -62,10 +66,13 @@ export function sortTracesAscending(rawTraces: TraceStep[]): TraceStep[] {
   return rawTraces;
 }
 
-export const VaultDrawer: React.FC<VaultDrawerProps> = ({
+export const VaultDrawer: React.FC<VaultDrawerProps> = React.memo(({
   sources,
   kb,
   traces,
+  isLoadingSources = false,
+  isLoadingKb = false,
+  isLoadingTraces = false,
   onAddToKb,
   onClearTraces,
   activeThreadId,
@@ -279,7 +286,9 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
                 paddingRight: "4px",
               }}
             >
-              {filteredSources.length === 0 ? (
+              {isLoadingSources ? (
+                <SourceCardSkeleton count={3} />
+              ) : filteredSources.length === 0 ? (
                 <div className="vault-empty">
                   <span className="vault-empty-icon">🌐</span>
                   <strong>No sources collected</strong>
@@ -457,7 +466,9 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
                 paddingRight: "4px",
               }}
             >
-              {kb.length === 0 ? (
+              {isLoadingKb ? (
+                <KbCardSkeleton count={3} />
+              ) : kb.length === 0 ? (
                 <div className="vault-empty">
                   <span className="vault-empty-icon">📚</span>
                   <strong>Knowledge Base Empty</strong>
@@ -544,7 +555,9 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
                 padding: "6px 4px 6px 0",
               }}
             >
-              {orderedTraces.length === 0 ? (
+              {isLoadingTraces ? (
+                <TraceStepSkeleton count={5} />
+              ) : orderedTraces.length === 0 ? (
                 <div className="vault-empty">
                   <span className="vault-empty-icon">⚡</span>
                   <strong>No trace events recorded</strong>
@@ -589,4 +602,4 @@ export const VaultDrawer: React.FC<VaultDrawerProps> = ({
       </div>
     </section>
   );
-};
+});

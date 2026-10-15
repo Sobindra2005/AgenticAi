@@ -1,4 +1,4 @@
-import { eq, desc, asc } from "drizzle-orm";
+import { eq, desc, asc, lt, and, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import * as models from "../models/index.js";
 import { SourceItem, KnowledgeBaseEntry } from "../graphs/state.js";
@@ -82,17 +82,139 @@ export const ThreadService = {
   },
 
   /**
-   * Fetches full thread data including all messages, sources, KB entries, and traces.
+   * Fetches paginated messages for a given thread with cursor-based pagination.
+   * If `before` is provided (UUID or ISO date), fetches messages created before that cursor.
+   * Messages are returned in chronological order (asc by createdAt).
    */
-  async getFullData(id: string) {
-    if (!isValidUUID(id)) {
-      return { thread: undefined, messages: [], sources: [], kb: [], traces: [] };
+  async getMessagesPaginated(
+    threadId: string,
+    options?: { limit?: number; before?: string }
+  ) {
+    if (!isValidUUID(threadId)) {
+      return {
+        messages: [] as models.Message[],
+        pagination: { total: 0, hasMore: false, limit: 15, oldestMessageId: null, oldestCreatedAt: null },
+      };
     }
 
-    const [threadList, messagesList, sourcesList, kbList, tracesList] =
+    const limit = Math.max(1, Math.min(options?.limit ?? 15, 100));
+
+    // Get total message count
+    const totalCountRes = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(models.messages)
+      .where(eq(models.messages.threadId, threadId));
+    const total = totalCountRes[0]?.count ?? 0;
+
+    let beforeDate: Date | null = null;
+    if (options?.before) {
+      if (isValidUUID(options.before)) {
+        const cursorMsg = await db
+          .select({ createdAt: models.messages.createdAt })
+          .from(models.messages)
+          .where(and(eq(models.messages.threadId, threadId), eq(models.messages.id, options.before)));
+        if (cursorMsg[0]) {
+          beforeDate = cursorMsg[0].createdAt;
+        }
+      } else {
+        const parsed = new Date(options.before);
+        if (!isNaN(parsed.getTime())) {
+          beforeDate = parsed;
+        }
+      }
+    }
+
+    const whereClause = beforeDate
+      ? and(
+          eq(models.messages.threadId, threadId),
+          lt(models.messages.createdAt, beforeDate)
+        )
+      : eq(models.messages.threadId, threadId);
+
+    const rows = await db
+      .select()
+      .from(models.messages)
+      .where(whereClause)
+      .orderBy(desc(models.messages.createdAt))
+      .limit(limit);
+
+    // Reverse to chronological order (asc)
+    const messages = [...rows].reverse();
+
+    // Check if there are more older messages
+    let hasMore = false;
+    let oldestMessageId: string | null = null;
+    let oldestCreatedAt: string | null = null;
+
+    if (messages.length > 0) {
+      const oldestInBatch = messages[0];
+      oldestMessageId = oldestInBatch.id;
+      oldestCreatedAt = oldestInBatch.createdAt.toISOString();
+
+      const olderCheck = await db
+        .select({ id: models.messages.id })
+        .from(models.messages)
+        .where(
+          and(
+            eq(models.messages.threadId, threadId),
+            lt(models.messages.createdAt, oldestInBatch.createdAt)
+          )
+        )
+        .limit(1);
+
+      hasMore = olderCheck.length > 0;
+    }
+
+    return {
+      messages,
+      pagination: {
+        total,
+        hasMore,
+        limit,
+        oldestMessageId,
+        oldestCreatedAt,
+      },
+    };
+  },
+
+  /**
+   * Fetches full thread data including paginated messages, sources, KB entries, and traces.
+   * Default messageLimit is 15. Pass 0 to fetch all messages.
+   */
+  async getFullData(id: string, options?: { messageLimit?: number }) {
+    if (!isValidUUID(id)) {
+      return {
+        thread: undefined,
+        messages: [],
+        pagination: { total: 0, hasMore: false, limit: 15, oldestMessageId: null, oldestCreatedAt: null },
+        sources: [],
+        kb: [],
+        traces: [],
+      };
+    }
+
+    const messageLimit = options?.messageLimit !== undefined ? options.messageLimit : 15;
+
+    const [threadList, paginatedResult, sourcesList, kbList, tracesList] =
       await Promise.all([
         db.select().from(models.threads).where(eq(models.threads.id, id)),
-        db.select().from(models.messages).where(eq(models.messages.threadId, id)).orderBy(asc(models.messages.createdAt)),
+        messageLimit === 0
+          ? db
+              .select()
+              .from(models.messages)
+              .where(eq(models.messages.threadId, id))
+              .orderBy(asc(models.messages.createdAt))
+              .then((allMsgs) => ({
+                messages: allMsgs,
+                pagination: {
+                  total: allMsgs.length,
+                  hasMore: false,
+                  limit: 0,
+                  oldestMessageId: allMsgs[0]?.id ?? null,
+                  oldestCreatedAt: allMsgs[0]?.createdAt?.toISOString() ?? null,
+                },
+              }))
+          : this.getMessagesPaginated(id, { limit: messageLimit }),
         db.select().from(models.sources).where(eq(models.sources.threadId, id)),
         db.select().from(models.knowledgeBase).where(eq(models.knowledgeBase.threadId, id)),
         db.select().from(models.traces).where(eq(models.traces.threadId, id)).orderBy(asc(models.traces.createdAt)),
@@ -100,7 +222,8 @@ export const ThreadService = {
 
     return {
       thread: threadList[0],
-      messages: messagesList,
+      messages: paginatedResult.messages,
+      pagination: paginatedResult.pagination,
       sources: sourcesList.map((s) => ({
         id: s.id,
         url: s.url,
@@ -125,6 +248,63 @@ export const ThreadService = {
         time: t.time,
       })),
     };
+  },
+
+  /**
+   * Fetches isolated sources list for a thread without blocking other assets.
+   */
+  async getSources(threadId: string) {
+    if (!isValidUUID(threadId)) return [];
+    const rows = await db
+      .select()
+      .from(models.sources)
+      .where(eq(models.sources.threadId, threadId));
+    return rows.map((s) => ({
+      id: s.id,
+      url: s.url,
+      title: s.title,
+      content: s.content,
+      score: s.score ?? undefined,
+      iteration: s.iteration ?? 1,
+    }));
+  },
+
+  /**
+   * Fetches isolated knowledge base entries for a thread without blocking other assets.
+   */
+  async getKb(threadId: string) {
+    if (!isValidUUID(threadId)) return [];
+    const rows = await db
+      .select()
+      .from(models.knowledgeBase)
+      .where(eq(models.knowledgeBase.threadId, threadId));
+    return rows.map((k) => ({
+      id: k.id,
+      sourceUrl: k.sourceUrl,
+      title: k.title,
+      domain: k.domain,
+      category: k.category as any,
+      summary: k.summary,
+      keyTopics: k.keyTopics,
+    }));
+  },
+
+  /**
+   * Fetches isolated graph execution telemetry traces for a thread without blocking other assets.
+   */
+  async getTraces(threadId: string) {
+    if (!isValidUUID(threadId)) return [];
+    const rows = await db
+      .select()
+      .from(models.traces)
+      .where(eq(models.traces.threadId, threadId))
+      .orderBy(asc(models.traces.createdAt));
+    return rows.map((t) => ({
+      id: t.id,
+      node: t.node,
+      desc: t.description,
+      time: t.time,
+    }));
   },
 
   /**

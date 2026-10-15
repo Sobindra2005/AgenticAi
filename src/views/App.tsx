@@ -118,6 +118,16 @@ export const App: React.FC<AppProps> = ({
   const [kb, setKb] = useState<KnowledgeBaseEntry[]>([]);
   const [traces, setTraces] = useState<TraceStep[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [totalMessagesCount, setTotalMessagesCount] = useState<number>(0);
+
+  // Independent loading states for isolated fetching
+  const [isLoadingThreads, setIsLoadingThreads] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isLoadingSources, setIsLoadingSources] = useState(false);
+  const [isLoadingKb, setIsLoadingKb] = useState(false);
+  const [isLoadingTraces, setIsLoadingTraces] = useState(false);
 
   const activeEventSourceRef = useRef<EventSource | null>(null);
 
@@ -132,8 +142,9 @@ export const App: React.FC<AppProps> = ({
     setTraces((prev) => [...prev, newStep]);
   };
 
-  // Helper to fetch all threads from DB
+  // Helper to fetch all threads from DB without blocking
   const fetchThreads = async () => {
+    setIsLoadingThreads(true);
     try {
       const res = await fetch("/api/threads");
       if (res.ok) {
@@ -145,25 +156,43 @@ export const App: React.FC<AppProps> = ({
       }
     } catch (e) {
       console.warn("Failed to fetch threads:", e);
+    } finally {
+      setIsLoadingThreads(false);
     }
     return [];
   };
 
-  // Load a single thread's complete data from DB
-  const loadThread = async (id: string) => {
-    try {
-      const res = await fetch(`/api/threads/${encodeURIComponent(id)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setActiveThreadId(id);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("agentic_active_thread_id", id);
-        }
+  // Load thread data with non-blocking, isolated fetching
+  const loadThread = (id: string) => {
+    // 1. Immediately switch view and thread without waiting for network!
+    setActiveThreadId(id);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("agentic_active_thread_id", id);
+    }
+    const existing = threads.find((t) => t.id === id);
+    if (existing) {
+      setActiveThreadTitle(existing.title || "Research Thread");
+    }
+    setActiveView("workspace");
 
-        const title = data.thread?.title || "Research Thread";
+    // 2. Set individual loading states for isolated fetching
+    setIsLoadingMessages(true);
+    setIsLoadingSources(true);
+    setIsLoadingKb(true);
+    setIsLoadingTraces(true);
+
+    // Clear stale items for clean transition
+    setMessages([]);
+    setSources([]);
+    setKb([]);
+    setTraces([]);
+
+    // 3. Fetch messages & thread metadata (non-blocking)
+    fetch(`/api/threads/${encodeURIComponent(id)}?limit=15`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+      .then((data) => {
+        const title = data.thread?.title || existing?.title || "Research Thread";
         setActiveThreadTitle(title);
-
-        // Format loaded messages
         const msgs: MessageItem[] = (data.messages || []).map((m: any) => ({
           id: m.id,
           role: m.role,
@@ -174,13 +203,84 @@ export const App: React.FC<AppProps> = ({
           sources: data.sources || [],
         }));
         setMessages(msgs);
-        setSources(data.sources || []);
-        setKb(data.kb || []);
-        setTraces(data.traces || []);
-        setActiveView("workspace");
+        setHasMoreMessages(Boolean(data.pagination?.hasMore));
+        setTotalMessagesCount(data.pagination?.total ?? msgs.length);
+      })
+      .catch((err) => console.error(`Failed to load messages for thread ${id}:`, err))
+      .finally(() => setIsLoadingMessages(false));
+
+    // 4. Fetch sources independently (non-blocking)
+    fetch(`/api/threads/${encodeURIComponent(id)}/sources`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+      .then((data) => {
+        if (Array.isArray(data.sources)) {
+          setSources(data.sources);
+        }
+      })
+      .catch((err) => console.error(`Failed to load sources for thread ${id}:`, err))
+      .finally(() => setIsLoadingSources(false));
+
+    // 5. Fetch KB entries independently (non-blocking)
+    fetch(`/api/threads/${encodeURIComponent(id)}/kb`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+      .then((data) => {
+        if (Array.isArray(data.kb)) {
+          setKb(data.kb);
+        }
+      })
+      .catch((err) => console.error(`Failed to load KB for thread ${id}:`, err))
+      .finally(() => setIsLoadingKb(false));
+
+    // 6. Fetch traces independently (non-blocking)
+    fetch(`/api/threads/${encodeURIComponent(id)}/traces`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+      .then((data) => {
+        if (Array.isArray(data.traces)) {
+          setTraces(data.traces);
+        }
+      })
+      .catch((err) => console.error(`Failed to load traces for thread ${id}:`, err))
+      .finally(() => setIsLoadingTraces(false));
+  };
+
+  // Fetch older messages on demand for current active thread
+  const handleLoadOlderMessages = async () => {
+    if (!activeThreadId || isLoadingOlderMessages || !hasMoreMessages) return;
+
+    // The oldest message currently in state
+    const oldestMsg = messages[0];
+    if (!oldestMsg?.id) return;
+
+    setIsLoadingOlderMessages(true);
+    try {
+      const url = `/api/threads/${encodeURIComponent(
+        activeThreadId
+      )}/messages?limit=15&before=${encodeURIComponent(oldestMsg.id)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const olderMsgs: MessageItem[] = (data.messages || []).map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          thinking: m.thinking,
+          report: m.report || m.content,
+          iterations: m.iterations || 1,
+          sources: sources,
+        }));
+
+        if (olderMsgs.length > 0) {
+          setMessages((prev) => [...olderMsgs, ...prev]);
+        }
+        setHasMoreMessages(Boolean(data.pagination?.hasMore));
+        if (data.pagination?.total !== undefined) {
+          setTotalMessagesCount(data.pagination.total);
+        }
       }
-    } catch (e) {
-      console.error(`Failed to load thread ${id}:`, e);
+    } catch (err) {
+      console.error("Failed to load older messages:", err);
+    } finally {
+      setIsLoadingOlderMessages(false);
     }
   };
 
@@ -258,6 +358,8 @@ export const App: React.FC<AppProps> = ({
       setSources([]);
       setKb([]);
       setTraces([]);
+      setHasMoreMessages(false);
+      setTotalMessagesCount(0);
       fetchThreads();
     } catch (e) {
       console.error("Failed to clear thread:", e);
@@ -349,6 +451,7 @@ export const App: React.FC<AppProps> = ({
     };
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    setTotalMessagesCount((prev) => prev + 2);
 
     // Close any previous stream
     if (activeEventSourceRef.current) {
@@ -571,6 +674,7 @@ export const App: React.FC<AppProps> = ({
         <ThreadsHubView
           threads={threads}
           activeThreadId={activeThreadId}
+          isLoadingThreads={isLoadingThreads}
           onSelectThread={(id) => loadThread(id)}
           onDeleteThread={(id) => handleDeleteThread(id)}
           onCreateThread={() => handleCreateNewThread()}
@@ -584,6 +688,14 @@ export const App: React.FC<AppProps> = ({
           kb={kb}
           traces={traces}
           isSubmitting={isSubmitting}
+          isLoadingMessages={isLoadingMessages}
+          isLoadingSources={isLoadingSources}
+          isLoadingKb={isLoadingKb}
+          isLoadingTraces={isLoadingTraces}
+          hasMoreMessages={hasMoreMessages}
+          isLoadingOlderMessages={isLoadingOlderMessages}
+          totalMessagesCount={totalMessagesCount}
+          onLoadOlderMessages={handleLoadOlderMessages}
           onBackToThreads={() => setActiveView("threads")}
           onClearThread={handleClearThread}
           onSubmitQuery={handleSubmitQuery}

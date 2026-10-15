@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import MarkdownIt from "markdown-it";
 import { VaultDrawer, TraceStep } from "./VaultDrawer.js";
 import { SourceItem, KnowledgeBaseEntry } from "../../graphs/state.js";
 import { MermaidDiagram } from "./MermaidDiagram.js";
+import { MessageSkeleton } from "./skeletons/index.js";
 
 const md = new MarkdownIt({
   html: true,
@@ -41,6 +42,14 @@ interface WorkspaceViewProps {
   kb: KnowledgeBaseEntry[];
   traces: TraceStep[];
   isSubmitting: boolean;
+  isLoadingMessages?: boolean;
+  isLoadingSources?: boolean;
+  isLoadingKb?: boolean;
+  isLoadingTraces?: boolean;
+  hasMoreMessages?: boolean;
+  isLoadingOlderMessages?: boolean;
+  totalMessagesCount?: number;
+  onLoadOlderMessages?: () => void;
   onBackToThreads: () => void;
   onClearThread: () => void;
   onSubmitQuery: (query: string) => void;
@@ -49,10 +58,15 @@ interface WorkspaceViewProps {
   onUpdateMessageReport?: (messageIdentifier: string | number, updatedReport: string) => void;
 }
 
-interface ReportSegment {
-  type: "markdown" | "mermaid" | "mermaid-streaming";
-  content: string;
-}
+type ReportSegment =
+  | { type: "markdown"; content: string }
+  | { type: "mermaid"; content: string }
+  | { type: "mermaid-streaming"; content: string };
+
+type RenderedSegment =
+  | { type: "mermaid"; content: string }
+  | { type: "mermaid-streaming"; content: string }
+  | { type: "markdown"; content: string; html: string };
 
 function parseReportSegments(reportText: string): ReportSegment[] {
   if (!reportText) return [];
@@ -190,11 +204,10 @@ interface MessageItemViewProps {
   sources: SourceItem[];
   activeThreadId: string | null;
   onUpdateMessageReport?: (messageIdentifier: string | number, updatedReport: string) => void;
-  onCitationMouseOver: (e: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 const MessageItemView = React.memo<MessageItemViewProps>(
-  ({ msg, idx, sources, activeThreadId, onUpdateMessageReport, onCitationMouseOver }) => {
+  ({ msg, idx, sources, activeThreadId, onUpdateMessageReport }) => {
     if (msg.role === "user") {
       return (
         <div key={msg.id || idx} className="user-message">
@@ -205,6 +218,26 @@ const MessageItemView = React.memo<MessageItemViewProps>(
 
     // Assistant Message
     const effectiveSources = msg.sources && msg.sources.length > 0 ? msg.sources : sources;
+
+    // Memoize the rendered markdown and segments so completed reports are never re-parsed
+    const renderedReportSegments = useMemo<RenderedSegment[]>(() => {
+      const rawReport = msg.report || msg.content || "";
+      if (!rawReport) return [];
+
+      return parseReportSegments(rawReport).map((segment): RenderedSegment => {
+        if (segment.type === "markdown") {
+          return {
+            type: "markdown",
+            content: segment.content,
+            html: enhanceCitationsWithTooltips(
+              md.render(segment.content),
+              effectiveSources
+            ),
+          };
+        }
+        return segment;
+      });
+    }, [msg.report, msg.content, effectiveSources]);
 
     return (
       <div key={msg.id || idx} className="assistant-message">
@@ -309,63 +342,142 @@ const MessageItemView = React.memo<MessageItemViewProps>(
         )}
 
         {/* Final Report Body */}
-        <div
-          className="report-content"
-          onMouseOver={onCitationMouseOver}
-        >
-          {parseReportSegments(msg.report || msg.content || "").map(
-            (segment, segIdx) => {
-              if (segment.type === "mermaid") {
-                return (
-                  <MermaidDiagram
-                    key={`mermaid-${msg.id || idx}-${segIdx}`}
-                    code={segment.content}
-                    messageId={msg.id}
-                    threadId={activeThreadId || undefined}
-                    fullReport={msg.report || msg.content || ""}
-                    onCodeRepaired={(oldCode, newCode) => {
-                      if (onUpdateMessageReport) {
-                        const currentRep = msg.report || msg.content || "";
-                        const updated = currentRep.replace(oldCode, newCode);
-                        onUpdateMessageReport(msg.id || idx, updated);
-                      }
-                    }}
-                  />
-                );
-              }
-
-              if (segment.type === "mermaid-streaming") {
-                return (
-                  <div key={`streaming-${segIdx}`} className="mermaid-diagram-card">
-                    <div className="mermaid-card-body">
-                      <div className="mermaid-status-box validating">
-                        <div className="spinner"></div>
-                        <span>Generating Mermaid diagram...</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-
-              // Regular Markdown segment
-              const segmentHtml = enhanceCitationsWithTooltips(
-                md.render(segment.content),
-                effectiveSources
-              );
+        <div className="report-content">
+          {renderedReportSegments.map((segment, segIdx) => {
+            if (segment.type === "mermaid") {
               return (
-                <div
-                  key={`md-${segIdx}`}
-                  className="report-markdown-segment"
-                  dangerouslySetInnerHTML={{ __html: segmentHtml }}
+                <MermaidDiagram
+                  key={`mermaid-${msg.id || idx}-${segIdx}`}
+                  code={segment.content}
+                  messageId={msg.id}
+                  threadId={activeThreadId || undefined}
+                  fullReport={msg.report || msg.content || ""}
+                  onCodeRepaired={(oldCode, newCode) => {
+                    if (onUpdateMessageReport) {
+                      const currentRep = msg.report || msg.content || "";
+                      const updated = currentRep.replace(oldCode, newCode);
+                      onUpdateMessageReport(msg.id || idx, updated);
+                    }
+                  }}
                 />
               );
             }
-          )}
+
+            if (segment.type === "mermaid-streaming") {
+              return (
+                <div key={`streaming-${segIdx}`} className="mermaid-diagram-card">
+                  <div className="mermaid-card-body">
+                    <div className="mermaid-status-box validating">
+                      <div className="spinner"></div>
+                      <span>Generating Mermaid diagram...</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            // Regular Markdown segment
+            return (
+              <div
+                key={`md-${segIdx}`}
+                className="report-markdown-segment"
+                dangerouslySetInnerHTML={{ __html: segment.html }}
+              />
+            );
+          })}
         </div>
       </div>
     );
+  },
+  (prev, next) => {
+    return (
+      prev.msg === next.msg &&
+      prev.idx === next.idx &&
+      prev.sources === next.sources &&
+      prev.activeThreadId === next.activeThreadId &&
+      prev.onUpdateMessageReport === next.onUpdateMessageReport
+    );
   }
 );
+
+interface PromptComposerProps {
+  isSubmitting: boolean;
+  onSubmit: (query: string) => void;
+}
+
+/**
+ * Isolated PromptComposer component.
+ * Maintains its own local input state so that typing in the prompt bar
+ * re-renders ONLY this composer and never the parent WorkspaceView or
+ * the massive message history, eliminating all typing lag and jitter.
+ */
+const PromptComposer = React.memo<PromptComposerProps>(({ isSubmitting, onSubmit }) => {
+  const [inputText, setInputText] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputText(e.target.value);
+    const target = e.target;
+    // Auto-expand with max-height
+    target.style.height = "auto";
+    target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const query = inputText.trim();
+    if (!query || isSubmitting) return;
+    setInputText("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "48px";
+    }
+    onSubmit(query);
+  };
+
+  return (
+    <form id="chat-form" className="chat-input-bar" onSubmit={handleSubmit}>
+      <textarea
+        ref={textareaRef}
+        id="chat-input"
+        className="text-input"
+        placeholder="Research courses, topics, or ask follow-ups for this thread... (Press Enter to Send)"
+        rows={1}
+        value={inputText}
+        onChange={handleTextareaInput}
+        onKeyDown={handleKeyDown}
+        disabled={isSubmitting}
+      />
+      <button
+        id="btn-submit"
+        type="submit"
+        className="btn-send"
+        disabled={isSubmitting || !inputText.trim()}
+      >
+        <span>{isSubmitting ? "Running..." : "Research"}</span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="5" y1="12" x2="19" y2="12" />
+          <polyline points="12 5 19 12 12 19" />
+        </svg>
+      </button>
+    </form>
+  );
+});
 
 export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   activeThreadId,
@@ -375,6 +487,14 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   kb,
   traces,
   isSubmitting,
+  isLoadingMessages = false,
+  isLoadingSources = false,
+  isLoadingKb = false,
+  isLoadingTraces = false,
+  hasMoreMessages = false,
+  isLoadingOlderMessages = false,
+  totalMessagesCount,
+  onLoadOlderMessages,
   onBackToThreads,
   onClearThread,
   onSubmitQuery,
@@ -382,14 +502,22 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   onClearTraces,
   onUpdateMessageReport,
 }) => {
-  const [inputText, setInputText] = useState("");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
   const isAutoScrollEnabled = useRef(true);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
   const lastScrollTopRef = useRef<number>(0);
   const touchStartYRef = useRef<number | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const prevScrollHeightRef = useRef<number | null>(null);
+
+  const handleLoadEarlier = useCallback(() => {
+    if (isLoadingOlderMessages) return;
+    if (chatHistoryRef.current) {
+      prevScrollHeightRef.current = chatHistoryRef.current.scrollHeight;
+      isAutoScrollEnabled.current = false;
+    }
+    onLoadOlderMessages?.();
+  }, [isLoadingOlderMessages, onLoadOlderMessages]);
 
   // Scroll to bottom helper
   const scrollToBottom = (smooth = false) => {
@@ -435,6 +563,15 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     const prevScrollTop = lastScrollTopRef.current;
     lastScrollTopRef.current = scrollTop;
 
+    // On-demand auto-load when user scrolls near the top
+    if (scrollTop <= 15 && hasMoreMessages && !isLoadingOlderMessages && onLoadOlderMessages) {
+      if (chatHistoryRef.current) {
+        prevScrollHeightRef.current = chatHistoryRef.current.scrollHeight;
+        isAutoScrollEnabled.current = false;
+      }
+      onLoadOlderMessages();
+    }
+
     // Any upward scroll immediately disables auto-scrolling (no 60px fighting zone)
     if (scrollTop < prevScrollTop - 1) {
       isAutoScrollEnabled.current = false;
@@ -453,8 +590,17 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     }
   };
 
-  // Auto-scroll when messages update, respecting manual scroll-up
+  // Auto-scroll when messages update, preserving position if prepending older history
   useEffect(() => {
+    if (prevScrollHeightRef.current !== null && chatHistoryRef.current) {
+      const heightDifference = chatHistoryRef.current.scrollHeight - prevScrollHeightRef.current;
+      if (heightDifference > 0) {
+        chatHistoryRef.current.scrollTop += heightDifference;
+      }
+      prevScrollHeightRef.current = null;
+      return;
+    }
+
     if (isAutoScrollEnabled.current) {
       if (chatHistoryRef.current) {
         requestAnimationFrame(() => {
@@ -487,38 +633,21 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     return () => clearTimeout(timer);
   }, [activeThreadId]);
 
-  const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputText(e.target.value);
-    e.target.style.height = "auto";
-    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
-
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const query = inputText.trim();
-    if (!query || isSubmitting) return;
-    setInputText("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "48px";
-    }
-    isAutoScrollEnabled.current = true;
-    setShowScrollBottom(false);
-    setHasNewMessagesBelow(false);
-    setTimeout(() => {
-      scrollToBottom(true);
-    }, 50);
-    onSubmitQuery(query);
-  };
+  const handlePromptSubmit = useCallback(
+    (query: string) => {
+      isAutoScrollEnabled.current = true;
+      setShowScrollBottom(false);
+      setHasNewMessagesBelow(false);
+      setTimeout(() => {
+        scrollToBottom(true);
+      }, 50);
+      onSubmitQuery(query);
+    },
+    [onSubmitQuery]
+  );
 
   // Dynamically adjust citation tooltip alignment & vertical flip so it is never clipped
-  const handleCitationMouseOver = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleCitationMouseOver = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     const wrapper = target.closest(".citation-wrapper") as HTMLElement | null;
     if (!wrapper) return;
@@ -554,7 +683,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
       tooltip.classList.remove("tooltip-align-left");
       tooltip.classList.remove("tooltip-align-right");
     }
-  };
+  }, []);
 
   return (
     <section id="workspace-view" className="workspace-view">
@@ -639,8 +768,60 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
             onWheel={handleWheel}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
+            onMouseOver={handleCitationMouseOver}
           >
-            {messages.length === 0 && (
+            {/* Pagination Controls at Top of Chat History */}
+            {hasMoreMessages && (
+              <div className="history-pagination-bar">
+                <button
+                  type="button"
+                  id="btn-load-older-messages"
+                  className="btn-load-older"
+                  onClick={handleLoadEarlier}
+                  disabled={isLoadingOlderMessages}
+                >
+                  {isLoadingOlderMessages ? (
+                    <>
+                      <div className="spinner-small" />
+                      <span>Loading earlier messages...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="18 15 12 9 6 15" />
+                      </svg>
+                      <span>
+                        Load earlier messages
+                        {totalMessagesCount !== undefined && totalMessagesCount > messages.length && (
+                          <span className="load-count-badge">
+                            {totalMessagesCount - messages.length} remaining
+                          </span>
+                        )}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {!hasMoreMessages && messages.length > 0 && (
+              <div className="history-start-marker">
+                <span>Beginning of research conversation ({messages.length} messages)</span>
+              </div>
+            )}
+
+            {isLoadingMessages ? (
+              <MessageSkeleton />
+            ) : messages.length === 0 ? (
               <div
                 style={{
                   padding: "40px",
@@ -656,19 +837,18 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                   Ask a question, search for courses, or explore deep topics.
                 </div>
               </div>
+            ) : (
+              messages.map((msg, idx) => (
+                <MessageItemView
+                  key={msg.id || idx}
+                  msg={msg}
+                  idx={idx}
+                  sources={sources}
+                  activeThreadId={activeThreadId}
+                  onUpdateMessageReport={onUpdateMessageReport}
+                />
+              ))
             )}
-
-            {messages.map((msg, idx) => (
-              <MessageItemView
-                key={msg.id || idx}
-                msg={msg}
-                idx={idx}
-                sources={sources}
-                activeThreadId={activeThreadId}
-                onUpdateMessageReport={onUpdateMessageReport}
-                onCitationMouseOver={handleCitationMouseOver}
-              />
-            ))}
           </div>
 
           {/* Scroll to latest floating pill */}
@@ -699,41 +879,11 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
             </button>
           )}
 
-          {/* Prompt Composer */}
-          <form id="chat-form" className="chat-input-bar" onSubmit={handleSubmit}>
-            <textarea
-              ref={textareaRef}
-              id="chat-input"
-              className="text-input"
-              placeholder="Research courses, topics, or ask follow-ups for this thread... (Press Enter to Send)"
-              rows={1}
-              value={inputText}
-              onChange={handleTextareaInput}
-              onKeyDown={handleKeyDown}
-              disabled={isSubmitting}
-            />
-            <button
-              id="btn-submit"
-              type="submit"
-              className="btn-send"
-              disabled={isSubmitting || !inputText.trim()}
-            >
-              <span>{isSubmitting ? "Running..." : "Research"}</span>
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </button>
-          </form>
+          {/* Prompt Composer (Isolated to eliminate typing jitter) */}
+          <PromptComposer
+            isSubmitting={isSubmitting}
+            onSubmit={handlePromptSubmit}
+          />
         </section>
 
         {/* Right Panel: Vault Drawer */}
@@ -741,6 +891,9 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
           sources={sources}
           kb={kb}
           traces={traces}
+          isLoadingSources={isLoadingSources}
+          isLoadingKb={isLoadingKb}
+          isLoadingTraces={isLoadingTraces}
           onAddToKb={onAddToKb}
           onClearTraces={onClearTraces}
           activeThreadId={activeThreadId}

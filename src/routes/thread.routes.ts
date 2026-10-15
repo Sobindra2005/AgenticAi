@@ -5,6 +5,10 @@ const router = Router();
 
 router.get("/", ThreadController.getAllThreads);
 router.post("/", ThreadController.createThread);
+router.get("/:id/messages", ThreadController.getThreadMessages);
+router.get("/:id/sources", ThreadController.getThreadSources);
+router.get("/:id/kb", ThreadController.getThreadKb);
+router.get("/:id/traces", ThreadController.getThreadTraces);
 router.get("/:id", ThreadController.getThreadById);
 router.put("/:id", ThreadController.updateThread);
 router.post("/:id/save", ThreadController.saveThreadAssets);

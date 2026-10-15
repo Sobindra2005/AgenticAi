@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { ThreadCardSkeleton } from "./skeletons/index.js";
 
 export interface ThreadItem {
   id: string;
@@ -15,6 +16,7 @@ export interface ThreadItem {
 interface ThreadsHubViewProps {
   threads: ThreadItem[];
   activeThreadId: string | null;
+  isLoadingThreads?: boolean;
   onSelectThread: (id: string) => void;
   onDeleteThread: (id: string) => void;
   onCreateThread: () => void;
@@ -41,6 +43,7 @@ function formatRelativeTime(timestamp?: number | string | Date): string {
 export const ThreadsHubView: React.FC<ThreadsHubViewProps> = ({
   threads,
   activeThreadId,
+  isLoadingThreads = false,
   onSelectThread,
   onDeleteThread,
   onCreateThread,
@@ -115,8 +118,10 @@ export const ThreadsHubView: React.FC<ThreadsHubViewProps> = ({
           </p>
         </div>
 
-        {/* Filtered Thread Cards */}
-        {filteredThreads.length === 0 && term ? (
+        {/* Filtered Thread Cards or Skeletons */}
+        {isLoadingThreads && threads.length === 0 ? (
+          <ThreadCardSkeleton count={4} />
+        ) : filteredThreads.length === 0 && term ? (
           <div
             style={{
               gridColumn: "1 / -1",
