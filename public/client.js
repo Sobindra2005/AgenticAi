@@ -23854,17 +23854,10 @@ var AppHeader = ({
 }) => {
   const workspaceLabel = activeThreadTitle ? activeThreadTitle.length > 18 ? activeThreadTitle.slice(0, 18) + "..." : activeThreadTitle : "Active Workspace";
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "app-header", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "brand-group", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "brand-logo", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "logo-dot" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Agentic AI Studio" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "model-badges", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "badge badge-accent", children: "LangGraph v1.4" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "badge badge-cyan", children: "DeepSeek-R1" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "badge badge-orange", children: "Tavily Search" })
-      ] })
-    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "brand-group", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "brand-logo", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "logo-dot" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "StartupLM" })
+    ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "nav-tabs", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
         "button",
@@ -30077,7 +30070,12 @@ var MermaidDiagram = import_react3.default.memo(({
   });
   const [debugTrace, setDebugTrace] = (0, import_react3.useState)(null);
   const [showDebugDrawer, setShowDebugDrawer] = (0, import_react3.useState)(false);
+  const [isFullscreen, setIsFullscreen] = (0, import_react3.useState)(false);
+  const cardRef = (0, import_react3.useRef)(null);
   const containerRef = (0, import_react3.useRef)(null);
+  const viewportRef = (0, import_react3.useRef)(null);
+  const canvasLayerRef = (0, import_react3.useRef)(null);
+  const [isPannable, setIsPannable] = (0, import_react3.useState)(false);
   const isHealingRef = (0, import_react3.useRef)(false);
   const attemptsRef = (0, import_react3.useRef)(0);
   const MAX_ATTEMPTS = 2;
@@ -30326,10 +30324,64 @@ var MermaidDiagram = import_react3.default.memo(({
       isCancelled = true;
     };
   }, [currentCode, retryCount]);
+  const getPanBounds = (0, import_react3.useCallback)(() => {
+    if (!viewportRef.current || !canvasLayerRef.current) {
+      return { minX: 0, maxX: 0, minY: 0, maxY: 0, canPanX: false, canPanY: false };
+    }
+    const viewportW = viewportRef.current.clientWidth;
+    const viewportH = viewportRef.current.clientHeight;
+    const svgEl = canvasLayerRef.current.querySelector("svg");
+    let contentW = 0;
+    let contentH = 0;
+    if (svgEl) {
+      const rect = svgEl.getBoundingClientRect();
+      contentW = rect.width;
+      contentH = rect.height;
+    }
+    if (!contentW && canvasLayerRef.current) {
+      contentW = (canvasLayerRef.current.offsetWidth || 0) * zoom;
+      contentH = (canvasLayerRef.current.offsetHeight || 0) * zoom;
+    }
+    const overflowX = contentW - viewportW;
+    const overflowY = contentH - viewportH;
+    const canPanX = overflowX > 6;
+    const canPanY = overflowY > 6;
+    const minX = canPanX ? -overflowX / 2 : 0;
+    const maxX = canPanX ? overflowX / 2 : 0;
+    const minY = canPanY ? -overflowY / 2 : 0;
+    const maxY = canPanY ? overflowY / 2 : 0;
+    return { minX, maxX, minY, maxY, canPanX, canPanY };
+  }, [zoom]);
+  (0, import_react3.useEffect)(() => {
+    const updateBoundsAndClamp = () => {
+      const { minX, maxX, minY, maxY, canPanX, canPanY } = getPanBounds();
+      setIsPannable(canPanX || canPanY);
+      setPan((prev) => {
+        const clampedX = Math.max(minX, Math.min(maxX, prev.x));
+        const clampedY = Math.max(minY, Math.min(maxY, prev.y));
+        if (clampedX === prev.x && clampedY === prev.y) return prev;
+        return { x: clampedX, y: clampedY };
+      });
+    };
+    updateBoundsAndClamp();
+    const t1 = setTimeout(updateBoundsAndClamp, 60);
+    const t2 = setTimeout(updateBoundsAndClamp, 250);
+    window.addEventListener("resize", updateBoundsAndClamp);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      window.removeEventListener("resize", updateBoundsAndClamp);
+    };
+  }, [zoom, svgHtml, status, getPanBounds, isFullscreen]);
   const handlePointerDown = (e) => {
     if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
     if (e.button !== 0) return;
     if (e.target.closest("button, a")) return;
+    const { canPanX, canPanY } = getPanBounds();
+    if (!canPanX && !canPanY) return;
+    if (!e.target.closest(".mermaid-canvas-layer")) {
+      return;
+    }
     setIsPanning(true);
     startPanRef.current = {
       startX: e.clientX,
@@ -30346,9 +30398,14 @@ var MermaidDiagram = import_react3.default.memo(({
     if (!isPanning) return;
     const deltaX = e.clientX - startPanRef.current.startX;
     const deltaY = e.clientY - startPanRef.current.startY;
+    const targetX = startPanRef.current.initialPanX + deltaX;
+    const targetY = startPanRef.current.initialPanY + deltaY;
+    const { minX, maxX, minY, maxY } = getPanBounds();
+    const clampedX = Math.max(minX, Math.min(maxX, targetX));
+    const clampedY = Math.max(minY, Math.min(maxY, targetY));
     setPan({
-      x: startPanRef.current.initialPanX + deltaX,
-      y: startPanRef.current.initialPanY + deltaY
+      x: clampedX,
+      y: clampedY
     });
   };
   const handlePointerUp = (e) => {
@@ -30382,248 +30439,425 @@ var MermaidDiagram = import_react3.default.memo(({
     setStatus("validating");
     setRetryCount((prev) => prev + 1);
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-diagram-card", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-card-header", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-header-left", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "mermaid-badge", children: "\u{1F4CA} Diagram" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-tab-group", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-            "button",
-            {
-              className: `mermaid-tab-btn ${activeTab === "preview" ? "active" : ""}`,
-              onClick: () => setActiveTab("preview"),
-              children: "Preview"
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-            "button",
-            {
-              className: `mermaid-tab-btn ${activeTab === "code" ? "active" : ""}`,
-              onClick: () => setActiveTab("code"),
-              children: "Code"
-            }
-          )
-        ] }),
-        debugTrace && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
-          "button",
-          {
-            type: "button",
-            className: `mermaid-debug-trigger-badge ${debugTrace.status === "success" ? "success" : "failed"}`,
-            onClick: () => setShowDebugDrawer(!showDebugDrawer),
-            title: "Toggle self-healing debug trace & telemetry",
-            children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "debug-badge-icon", children: debugTrace.status === "success" ? "\u26A1" : "\u26A0\uFE0F" }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "debug-badge-title", children: debugTrace.status === "success" ? "Self-Healed" : "Heal Failed" }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "debug-badge-meta", children: [
-                debugTrace.modelUsed.split(":").pop(),
-                " \xB7 ",
-                debugTrace.durationMs,
-                "ms"
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "debug-badge-arrow", children: showDebugDrawer ? "\u25B2" : "\u25BC" })
-            ]
+  const toggleFullscreen = (0, import_react3.useCallback)(async () => {
+    const cardEl = cardRef.current;
+    if (!cardEl) return;
+    if (!isFullscreen) {
+      setIsFullscreen(true);
+      try {
+        if (cardEl.requestFullscreen) {
+          await cardEl.requestFullscreen();
+        } else if (cardEl.webkitRequestFullscreen) {
+          await cardEl.webkitRequestFullscreen();
+        }
+      } catch (err) {
+        console.warn("[MermaidDiagram] Browser native fullscreen blocked, using overlay:", err);
+      }
+    } else {
+      if (document.fullscreenElement) {
+        try {
+          if (document.exitFullscreen) {
+            await document.exitFullscreen();
+          } else if (document.webkitExitFullscreen) {
+            await document.webkitExitFullscreen();
           }
-        )
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-header-right", children: [
-        status === "rendered" && activeTab === "preview" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-zoom-controls", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        } catch (err) {
+          console.warn("[MermaidDiagram] Exit browser fullscreen failed:", err);
+        }
+      }
+      setIsFullscreen(false);
+    }
+  }, [isFullscreen]);
+  (0, import_react3.useEffect)(() => {
+    const handleFullscreenChange = () => {
+      const isCardFullscreen = !!(document.fullscreenElement && cardRef.current && (document.fullscreenElement === cardRef.current || cardRef.current.contains(document.fullscreenElement)));
+      if (!isCardFullscreen && !document.fullscreenElement && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
+  }, [isFullscreen]);
+  (0, import_react3.useEffect)(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape" && isFullscreen) {
+        if (document.fullscreenElement) {
+          try {
+            document.exitFullscreen().catch(() => {
+            });
+          } catch {
+          }
+        }
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFullscreen]);
+  (0, import_react3.useEffect)(() => {
+    if (isFullscreen) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = prevOverflow;
+      };
+    }
+  }, [isFullscreen]);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+    "div",
+    {
+      ref: cardRef,
+      className: `mermaid-diagram-card ${isFullscreen ? "is-fullscreen" : ""}`,
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-card-header", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-header-left", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-tab-group", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                "button",
+                {
+                  className: `mermaid-tab-btn ${activeTab === "preview" ? "active" : ""}`,
+                  onClick: () => setActiveTab("preview"),
+                  children: "Preview"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                "button",
+                {
+                  className: `mermaid-tab-btn ${activeTab === "code" ? "active" : ""}`,
+                  onClick: () => setActiveTab("code"),
+                  children: "Code"
+                }
+              )
+            ] }),
+            debugTrace && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
               "button",
               {
                 type: "button",
-                className: "mermaid-zoom-btn",
-                title: "Zoom Out",
-                onClick: () => setZoom((z) => Math.max(0.5, Math.round((z - 0.15) * 100) / 100)),
-                children: "\u2212"
-              }
-            ),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
-              "span",
-              {
-                className: "mermaid-zoom-val",
-                title: "Click to reset zoom to 100%",
-                onClick: () => setZoom(1),
+                className: `mermaid-debug-trigger-badge ${debugTrace.status === "success" ? "success" : "failed"}`,
+                onClick: () => setShowDebugDrawer(!showDebugDrawer),
+                title: "Toggle self-healing debug trace & telemetry",
                 children: [
-                  Math.round(zoom * 100),
-                  "%"
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "debug-badge-icon", children: debugTrace.status === "success" ? "\u26A1" : "\u26A0\uFE0F" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "debug-badge-title", children: debugTrace.status === "success" ? "Self-Healed" : "Heal Failed" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "debug-badge-meta", children: [
+                    debugTrace.modelUsed.split(":").pop(),
+                    " \xB7 ",
+                    debugTrace.durationMs,
+                    "ms"
+                  ] }),
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "debug-badge-arrow", children: showDebugDrawer ? "\u25B2" : "\u25BC" })
                 ]
-              }
-            ),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-              "button",
-              {
-                type: "button",
-                className: "mermaid-zoom-btn",
-                title: "Zoom In",
-                onClick: () => setZoom((z) => Math.min(2.5, Math.round((z + 0.15) * 100) / 100)),
-                children: "+"
               }
             )
           ] }),
-          (pan.x !== 0 || pan.y !== 0 || zoom !== 1) && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-            "button",
-            {
-              type: "button",
-              className: "mermaid-action-btn reset-view-btn",
-              title: "Reset Pan & Zoom View to Center",
-              onClick: handleResetView,
-              children: "\u21BA Reset View"
-            }
-          )
-        ] }),
-        debugTrace && showDebugDrawer && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-          "button",
-          {
-            className: "mermaid-action-btn",
-            title: "Copy Self-Heal Telemetry JSON",
-            onClick: handleCopyDebug,
-            children: copiedDebug ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { style: { color: "var(--accent)" }, children: "\u2713 Copied Trace" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Copy Trace JSON" })
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-          "button",
-          {
-            className: "mermaid-action-btn",
-            title: "Copy Mermaid Code",
-            onClick: handleCopyCode,
-            children: copied ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { style: { color: "var(--accent)" }, children: "\u2713 Copied" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Copy Code" })
-          }
-        )
-      ] })
-    ] }),
-    showDebugDrawer && debugTrace && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-debug-drawer", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-drawer-header", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-drawer-title-group", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "debug-drawer-icon", children: "\u{1F6E0}\uFE0F" }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "debug-drawer-title", children: "Self-Healing Diagnostic Trace" }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "debug-drawer-id", children: [
-            "#",
-            debugTrace.healId
-          ] })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "debug-drawer-status-pill", children: debugTrace.status === "success" ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "status-success", children: "\u2713 Repaired & Validated" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "status-failed", children: "\u274C Repair Failed" }) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-telemetry-grid", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-metric-card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-label", children: "Engine" }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-val model", children: debugTrace.modelUsed })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-metric-card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-label", children: "Strategy" }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-val", children: debugTrace.strategy || "auto" })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-metric-card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-label", children: "Latency" }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "metric-val", children: [
-            debugTrace.durationMs,
-            "ms"
-          ] })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-metric-card", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-label", children: "Attempt" }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "metric-val", children: [
-            debugTrace.attempt,
-            " / ",
-            MAX_ATTEMPTS
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "error-dot", children: "\u25CF" }),
-          " Parser Error Detected"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "debug-error-box", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("code", { children: debugTrace.originalError }) })
-      ] }),
-      debugTrace.reasoningSnippet && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "reasoning-dot", children: "\u2726" }),
-          " Repair Reasoning & Diagnostics"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "debug-reasoning-box", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { children: debugTrace.reasoningSnippet }) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "\u21C4" }),
-          " Syntax Fix Comparison"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-diff-grid", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "diff-card broken", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "diff-header broken", children: "Original (Broken Syntax)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("code", { children: debugTrace.originalCode }) })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "diff-card repaired", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "diff-header repaired", children: "Repaired (Valid Mermaid)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("code", { children: debugTrace.repairedCode || "(No valid fix generated)" }) })
-          ] })
-        ] })
-      ] })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-card-body", ref: containerRef, children: [
-      status === "validating" && activeTab === "preview" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-status-box validating", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "spinner" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Validating Mermaid syntax & rendering preview..." })
-      ] }),
-      status === "healing" && activeTab === "preview" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-status-box healing", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "spinner-healing" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "healing-text-group", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "healing-title-row", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "healing-title", children: "\u26A0\uFE0F Syntax Error Detected in Diagram" }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "healing-attempt-pill", children: [
-              "Attempt ",
-              attemptsRef.current,
-              " of ",
-              MAX_ATTEMPTS
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "healing-subtitle", children: "Self-healing syntax via intelligent local/cloud repair engine..." })
-        ] })
-      ] }),
-      status === "rendered" && activeTab === "preview" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
-        "div",
-        {
-          className: `mermaid-viewport ${isPanning ? "panning" : ""}`,
-          onPointerDown: handlePointerDown,
-          onPointerMove: handlePointerMove,
-          onPointerUp: handlePointerUp,
-          onPointerCancel: handlePointerUp,
-          children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-              "div",
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-header-right", children: [
+            status === "rendered" && activeTab === "preview" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-zoom-controls", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    className: "mermaid-zoom-btn",
+                    title: "Zoom Out",
+                    onClick: () => setZoom((z) => Math.max(0.5, Math.round((z - 0.15) * 100) / 100)),
+                    children: "\u2212"
+                  }
+                ),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+                  "span",
+                  {
+                    className: "mermaid-zoom-val",
+                    title: "Click to reset zoom to 100%",
+                    onClick: () => setZoom(1),
+                    children: [
+                      Math.round(zoom * 100),
+                      "%"
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    className: "mermaid-zoom-btn",
+                    title: "Zoom In",
+                    onClick: () => setZoom((z) => Math.min(2.5, Math.round((z + 0.15) * 100) / 100)),
+                    children: "+"
+                  }
+                )
+              ] }),
+              (pan.x !== 0 || pan.y !== 0 || zoom !== 1) && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "mermaid-action-btn reset-view-btn",
+                  title: "Reset Pan & Zoom View to Center",
+                  onClick: handleResetView,
+                  children: "\u21BA Reset View"
+                }
+              )
+            ] }),
+            debugTrace && showDebugDrawer && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              "button",
               {
-                className: "mermaid-canvas-layer",
-                style: {
-                  transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
-                  transformOrigin: "center center",
-                  transition: isPanning ? "none" : "transform 0.12s ease-out"
-                },
-                dangerouslySetInnerHTML: { __html: svgHtml }
+                className: "mermaid-action-btn",
+                title: "Copy Self-Heal Telemetry JSON",
+                onClick: handleCopyDebug,
+                children: copiedDebug ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { style: { color: "var(--accent)" }, children: "\u2713 Copied Trace" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Copy Trace JSON" })
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "mermaid-drag-hint", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "\u270B Drag to move \xB7 Scroll / Zoom" }) })
-          ]
-        }
-      ),
-      status === "error" && activeTab === "preview" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-status-box error", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "error-title", children: "Diagram Syntax Issue" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "error-detail", children: errorMessage || "Invalid Mermaid syntax." }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "error-actions", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { className: "btn-secondary", onClick: () => setActiveTab("code"), children: "Inspect Code" }),
-          debugTrace && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-            "button",
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              "button",
+              {
+                type: "button",
+                className: `mermaid-action-btn mermaid-fullscreen-btn ${isFullscreen ? "active" : ""}`,
+                title: isFullscreen ? "Exit Full Screen (Esc)" : "Full Screen Mode (Esc to exit)",
+                onClick: toggleFullscreen,
+                children: isFullscreen ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+                    "svg",
+                    {
+                      width: "13",
+                      height: "13",
+                      viewBox: "0 0 24 24",
+                      fill: "none",
+                      stroke: "currentColor",
+                      strokeWidth: "2.2",
+                      strokeLinecap: "round",
+                      strokeLinejoin: "round",
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("polyline", { points: "4 14 10 14 10 20" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("polyline", { points: "20 10 14 10 14 4" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "14", y1: "10", x2: "21", y2: "3" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "10", y1: "14", x2: "3", y2: "21" })
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Exit Full Screen" })
+                ] }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+                    "svg",
+                    {
+                      width: "13",
+                      height: "13",
+                      viewBox: "0 0 24 24",
+                      fill: "none",
+                      stroke: "currentColor",
+                      strokeWidth: "2.2",
+                      strokeLinecap: "round",
+                      strokeLinejoin: "round",
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("polyline", { points: "15 3 21 3 21 9" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("polyline", { points: "9 21 3 21 3 15" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "21", y1: "3", x2: "14", y2: "10" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "3", y1: "21", x2: "10", y2: "14" })
+                      ]
+                    }
+                  ),
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Full Screen" })
+                ] })
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              "button",
+              {
+                className: "mermaid-action-btn",
+                title: "Copy Mermaid Code",
+                onClick: handleCopyCode,
+                children: copied ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { style: { color: "var(--accent)" }, children: "\u2713 Copied" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Copy Code" })
+              }
+            )
+          ] })
+        ] }),
+        showDebugDrawer && debugTrace && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-debug-drawer", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-drawer-header", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-drawer-title-group", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "debug-drawer-icon", children: "\u{1F6E0}\uFE0F" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "debug-drawer-title", children: "Self-Healing Diagnostic Trace" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "debug-drawer-id", children: [
+                "#",
+                debugTrace.healId
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "debug-drawer-status-pill", children: debugTrace.status === "success" ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "status-success", children: "\u2713 Repaired & Validated" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "status-failed", children: "\u274C Repair Failed" }) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-telemetry-grid", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-metric-card", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-label", children: "Engine" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-val model", children: debugTrace.modelUsed })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-metric-card", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-label", children: "Strategy" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-val", children: debugTrace.strategy || "auto" })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-metric-card", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-label", children: "Latency" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "metric-val", children: [
+                debugTrace.durationMs,
+                "ms"
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-metric-card", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "metric-label", children: "Attempt" }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "metric-val", children: [
+                debugTrace.attempt,
+                " / ",
+                MAX_ATTEMPTS
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section-label", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "error-dot", children: "\u25CF" }),
+              " Parser Error Detected"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "debug-error-box", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("code", { children: debugTrace.originalError }) })
+          ] }),
+          debugTrace.reasoningSnippet && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section-label", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "reasoning-dot", children: "\u2726" }),
+              " Repair Reasoning & Diagnostics"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "debug-reasoning-box", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { children: debugTrace.reasoningSnippet }) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-section-label", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "\u21C4" }),
+              " Syntax Fix Comparison"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "debug-diff-grid", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "diff-card broken", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "diff-header broken", children: "Original (Broken Syntax)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("code", { children: debugTrace.originalCode }) })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "diff-card repaired", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "diff-header repaired", children: "Repaired (Valid Mermaid)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("code", { children: debugTrace.repairedCode || "(No valid fix generated)" }) })
+              ] })
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-card-body", ref: containerRef, children: [
+          status === "validating" && activeTab === "preview" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-status-box validating", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "spinner" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Validating Mermaid syntax & rendering preview..." })
+          ] }),
+          status === "healing" && activeTab === "preview" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-status-box healing", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "spinner-healing" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "healing-text-group", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "healing-title-row", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "healing-title", children: "\u26A0\uFE0F Syntax Error Detected in Diagram" }),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "healing-attempt-pill", children: [
+                  "Attempt ",
+                  attemptsRef.current,
+                  " of ",
+                  MAX_ATTEMPTS
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "healing-subtitle", children: "Self-healing syntax via intelligent local/cloud repair engine..." })
+            ] })
+          ] }),
+          status === "rendered" && activeTab === "preview" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+            "div",
             {
-              className: "btn-secondary",
-              onClick: () => setShowDebugDrawer(true),
-              children: "View Debug Trace"
+              ref: viewportRef,
+              className: `mermaid-viewport ${isPannable ? "pannable" : ""} ${isPanning ? "panning" : ""}`,
+              onPointerDown: handlePointerDown,
+              onPointerMove: handlePointerMove,
+              onPointerUp: handlePointerUp,
+              onPointerCancel: handlePointerUp,
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    className: `mermaid-viewport-fullscreen-btn ${isFullscreen ? "active" : ""}`,
+                    onClick: toggleFullscreen,
+                    title: isFullscreen ? "Exit Full Screen (Esc)" : "Full Screen Diagram",
+                    "aria-label": isFullscreen ? "Exit Full Screen" : "Full Screen Diagram",
+                    children: isFullscreen ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+                      "svg",
+                      {
+                        width: "14",
+                        height: "14",
+                        viewBox: "0 0 24 24",
+                        fill: "none",
+                        stroke: "currentColor",
+                        strokeWidth: "2.2",
+                        strokeLinecap: "round",
+                        strokeLinejoin: "round",
+                        children: [
+                          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("polyline", { points: "4 14 10 14 10 20" }),
+                          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("polyline", { points: "20 10 14 10 14 4" }),
+                          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "14", y1: "10", x2: "21", y2: "3" }),
+                          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "10", y1: "14", x2: "3", y2: "21" })
+                        ]
+                      }
+                    ) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+                      "svg",
+                      {
+                        width: "14",
+                        height: "14",
+                        viewBox: "0 0 24 24",
+                        fill: "none",
+                        stroke: "currentColor",
+                        strokeWidth: "2.2",
+                        strokeLinecap: "round",
+                        strokeLinejoin: "round",
+                        children: [
+                          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("polyline", { points: "15 3 21 3 21 9" }),
+                          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("polyline", { points: "9 21 3 21 3 15" }),
+                          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "21", y1: "3", x2: "14", y2: "10" }),
+                          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "3", y1: "21", x2: "10", y2: "14" })
+                        ]
+                      }
+                    )
+                  }
+                ),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                  "div",
+                  {
+                    ref: canvasLayerRef,
+                    className: "mermaid-canvas-layer",
+                    style: {
+                      transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+                      transformOrigin: "center center",
+                      transition: isPanning ? "none" : "transform 0.12s ease-out"
+                    },
+                    dangerouslySetInnerHTML: { __html: svgHtml }
+                  }
+                ),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "mermaid-drag-hint", children: isFullscreen ? isPannable ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "\u270B Drag to pan \xB7 Esc to exit" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "\u{1F50D} Esc to exit full screen" }) : isPannable ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "\u270B Drag diagram to pan" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "\u{1F50D} Diagram fits view" }) })
+              ]
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { className: "btn-primary", onClick: handleManualRetry, children: "Retry Auto-Fix" })
+          status === "error" && activeTab === "preview" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "mermaid-status-box error", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "error-title", children: "Diagram Syntax Issue" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "error-detail", children: errorMessage || "Invalid Mermaid syntax." }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "error-actions", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { className: "btn-secondary", onClick: () => setActiveTab("code"), children: "Inspect Code" }),
+              debugTrace && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                "button",
+                {
+                  className: "btn-secondary",
+                  onClick: () => setShowDebugDrawer(true),
+                  children: "View Debug Trace"
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { className: "btn-primary", onClick: handleManualRetry, children: "Retry Auto-Fix" })
+            ] })
+          ] }),
+          activeTab === "code" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "mermaid-code-view", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("code", { children: currentCode }) }) })
         ] })
-      ] }),
-      activeTab === "code" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "mermaid-code-view", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("code", { children: currentCode }) }) })
-    ] })
-  ] });
+      ]
+    }
+  );
 });
 
 // src/views/components/WorkspaceView.tsx

@@ -26,12 +26,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       <div className="brand-group">
         <div className="brand-logo">
           <div className="logo-dot"></div>
-          <span>Agentic AI Studio</span>
-        </div>
-        <div className="model-badges">
-          <span className="badge badge-accent">LangGraph v1.4</span>
-          <span className="badge badge-cyan">DeepSeek-R1</span>
-          <span className="badge badge-orange">Tavily Search</span>
+          <span>StartupLM</span>
         </div>
       </div>
 

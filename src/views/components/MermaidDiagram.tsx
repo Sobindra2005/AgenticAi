@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 
 export interface SelfHealTrace {
   healId: string;
@@ -125,7 +125,14 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = React.memo(({
   const [debugTrace, setDebugTrace] = useState<SelfHealTrace | null>(null);
   const [showDebugDrawer, setShowDebugDrawer] = useState(false);
 
+  // Full Screen Mode State & Card Ref
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const canvasLayerRef = useRef<HTMLDivElement>(null);
+  const [isPannable, setIsPannable] = useState(false);
   const isHealingRef = useRef(false);
   const attemptsRef = useRef(0);
   const MAX_ATTEMPTS = 2;
@@ -417,12 +424,83 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = React.memo(({
     };
   }, [currentCode, retryCount]);
 
+  // Calculate boundary limits to ensure the diagram cannot be dragged into empty space
+  const getPanBounds = useCallback(() => {
+    if (!viewportRef.current || !canvasLayerRef.current) {
+      return { minX: 0, maxX: 0, minY: 0, maxY: 0, canPanX: false, canPanY: false };
+    }
+    const viewportW = viewportRef.current.clientWidth;
+    const viewportH = viewportRef.current.clientHeight;
+
+    const svgEl = canvasLayerRef.current.querySelector("svg");
+    let contentW = 0;
+    let contentH = 0;
+    if (svgEl) {
+      const rect = svgEl.getBoundingClientRect();
+      contentW = rect.width;
+      contentH = rect.height;
+    }
+    if (!contentW && canvasLayerRef.current) {
+      contentW = (canvasLayerRef.current.offsetWidth || 0) * zoom;
+      contentH = (canvasLayerRef.current.offsetHeight || 0) * zoom;
+    }
+
+    const overflowX = contentW - viewportW;
+    const overflowY = contentH - viewportH;
+
+    // Buffer to avoid 1-2px jitter from rounding
+    const canPanX = overflowX > 6;
+    const canPanY = overflowY > 6;
+
+    const minX = canPanX ? -overflowX / 2 : 0;
+    const maxX = canPanX ? overflowX / 2 : 0;
+    const minY = canPanY ? -overflowY / 2 : 0;
+    const maxY = canPanY ? overflowY / 2 : 0;
+
+    return { minX, maxX, minY, maxY, canPanX, canPanY };
+  }, [zoom]);
+
+  // Re-clamp pan and update pannable state when zoom, content, window dimensions, or fullscreen state change
+  useEffect(() => {
+    const updateBoundsAndClamp = () => {
+      const { minX, maxX, minY, maxY, canPanX, canPanY } = getPanBounds();
+      setIsPannable(canPanX || canPanY);
+      setPan((prev) => {
+        const clampedX = Math.max(minX, Math.min(maxX, prev.x));
+        const clampedY = Math.max(minY, Math.min(maxY, prev.y));
+        if (clampedX === prev.x && clampedY === prev.y) return prev;
+        return { x: clampedX, y: clampedY };
+      });
+    };
+
+    updateBoundsAndClamp();
+
+    const t1 = setTimeout(updateBoundsAndClamp, 60);
+    const t2 = setTimeout(updateBoundsAndClamp, 250);
+    window.addEventListener("resize", updateBoundsAndClamp);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      window.removeEventListener("resize", updateBoundsAndClamp);
+    };
+  }, [zoom, svgHtml, status, getPanBounds, isFullscreen]);
+
   // Pointer / Drag-to-Pan Handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     // Only capture pointer for mouse/pen drag so touch gestures can scroll naturally
     if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button, a")) return;
+
+    // If diagram fits completely in the viewport without overflow, do not allow moving
+    const { canPanX, canPanY } = getPanBounds();
+    if (!canPanX && !canPanY) return;
+
+    // If user clicked in the empty space beside the diagram, do not allow moving
+    if (!(e.target as HTMLElement).closest(".mermaid-canvas-layer")) {
+      return;
+    }
 
     setIsPanning(true);
     startPanRef.current = {
@@ -440,9 +518,17 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = React.memo(({
     if (!isPanning) return;
     const deltaX = e.clientX - startPanRef.current.startX;
     const deltaY = e.clientY - startPanRef.current.startY;
+    const targetX = startPanRef.current.initialPanX + deltaX;
+    const targetY = startPanRef.current.initialPanY + deltaY;
+
+    // Strictly clamp pan to diagram boundaries - never reveal empty space beside it
+    const { minX, maxX, minY, maxY } = getPanBounds();
+    const clampedX = Math.max(minX, Math.min(maxX, targetX));
+    const clampedY = Math.max(minY, Math.min(maxY, targetY));
+
     setPan({
-      x: startPanRef.current.initialPanX + deltaX,
-      y: startPanRef.current.initialPanY + deltaY,
+      x: clampedX,
+      y: clampedY,
     });
   };
 
@@ -481,12 +567,98 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = React.memo(({
     setRetryCount((prev) => prev + 1);
   };
 
+  // Full Screen Mode Handlers & Listeners
+  const toggleFullscreen = useCallback(async () => {
+    const cardEl = cardRef.current;
+    if (!cardEl) return;
+
+    if (!isFullscreen) {
+      setIsFullscreen(true);
+      try {
+        if (cardEl.requestFullscreen) {
+          await cardEl.requestFullscreen();
+        } else if ((cardEl as any).webkitRequestFullscreen) {
+          await (cardEl as any).webkitRequestFullscreen();
+        }
+      } catch (err) {
+        // Fallback gracefully to CSS fixed fullscreen overlay
+        console.warn("[MermaidDiagram] Browser native fullscreen blocked, using overlay:", err);
+      }
+    } else {
+      if (document.fullscreenElement) {
+        try {
+          if (document.exitFullscreen) {
+            await document.exitFullscreen();
+          } else if ((document as any).webkitExitFullscreen) {
+            await (document as any).webkitExitFullscreen();
+          }
+        } catch (err) {
+          console.warn("[MermaidDiagram] Exit browser fullscreen failed:", err);
+        }
+      }
+      setIsFullscreen(false);
+    }
+  }, [isFullscreen]);
+
+  // Synchronize state if user exits browser native fullscreen via Escape or browser UI
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCardFullscreen = !!(
+        document.fullscreenElement &&
+        cardRef.current &&
+        (document.fullscreenElement === cardRef.current || cardRef.current.contains(document.fullscreenElement))
+      );
+      if (!isCardFullscreen && !document.fullscreenElement && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
+  }, [isFullscreen]);
+
+  // Exit fullscreen on Escape key even when using CSS fixed overlay fallback
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) {
+        if (document.fullscreenElement) {
+          try {
+            document.exitFullscreen().catch(() => {});
+          } catch {}
+        }
+        setIsFullscreen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFullscreen]);
+
+  // Lock body scroll while in full screen mode
+  useEffect(() => {
+    if (isFullscreen) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = prevOverflow;
+      };
+    }
+  }, [isFullscreen]);
+
   return (
-    <div className="mermaid-diagram-card">
+    <div
+      ref={cardRef}
+      className={`mermaid-diagram-card ${isFullscreen ? "is-fullscreen" : ""}`}
+    >
       {/* Top Header / Bar */}
       <div className="mermaid-card-header">
         <div className="mermaid-header-left">
-          <span className="mermaid-badge">📊 Diagram</span>
           <div className="mermaid-tab-group">
             <button
               className={`mermaid-tab-btn ${activeTab === "preview" ? "active" : ""}`}
@@ -580,6 +752,54 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = React.memo(({
               )}
             </button>
           )}
+
+          {/* Full Screen Mode Toggle Button */}
+          <button
+            type="button"
+            className={`mermaid-action-btn mermaid-fullscreen-btn ${isFullscreen ? "active" : ""}`}
+            title={isFullscreen ? "Exit Full Screen (Esc)" : "Full Screen Mode (Esc to exit)"}
+            onClick={toggleFullscreen}
+          >
+            {isFullscreen ? (
+              <>
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="4 14 10 14 10 20" />
+                  <polyline points="20 10 14 10 14 4" />
+                  <line x1="14" y1="10" x2="21" y2="3" />
+                  <line x1="10" y1="14" x2="3" y2="21" />
+                </svg>
+                <span>Exit Full Screen</span>
+              </>
+            ) : (
+              <>
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+                <span>Full Screen</span>
+              </>
+            )}
+          </button>
 
           <button
             className="mermaid-action-btn"
@@ -709,13 +929,58 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = React.memo(({
         {/* State 3: Interactive Drag-to-Pan Canvas Preview */}
         {status === "rendered" && activeTab === "preview" && (
           <div
-            className={`mermaid-viewport ${isPanning ? "panning" : ""}`}
+            ref={viewportRef}
+            className={`mermaid-viewport ${isPannable ? "pannable" : ""} ${isPanning ? "panning" : ""}`}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
           >
+            {/* Quick floating Full Screen icon button inside diagram canvas */}
+            <button
+              type="button"
+              className={`mermaid-viewport-fullscreen-btn ${isFullscreen ? "active" : ""}`}
+              onClick={toggleFullscreen}
+              title={isFullscreen ? "Exit Full Screen (Esc)" : "Full Screen Diagram"}
+              aria-label={isFullscreen ? "Exit Full Screen" : "Full Screen Diagram"}
+            >
+              {isFullscreen ? (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="4 14 10 14 10 20" />
+                  <polyline points="20 10 14 10 14 4" />
+                  <line x1="14" y1="10" x2="21" y2="3" />
+                  <line x1="10" y1="14" x2="3" y2="21" />
+                </svg>
+              ) : (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              )}
+            </button>
+
             <div
+              ref={canvasLayerRef}
               className="mermaid-canvas-layer"
               style={{
                 transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
@@ -725,7 +990,17 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = React.memo(({
               dangerouslySetInnerHTML={{ __html: svgHtml }}
             />
             <div className="mermaid-drag-hint">
-              <span>✋ Drag to move · Scroll / Zoom</span>
+              {isFullscreen ? (
+                isPannable ? (
+                  <span>✋ Drag to pan · Esc to exit</span>
+                ) : (
+                  <span>🔍 Esc to exit full screen</span>
+                )
+              ) : isPannable ? (
+                <span>✋ Drag diagram to pan</span>
+              ) : (
+                <span>🔍 Diagram fits view</span>
+              )}
             </div>
           </div>
         )}

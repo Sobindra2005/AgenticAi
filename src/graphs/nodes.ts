@@ -1,7 +1,7 @@
 import { SystemMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
 import { RunnableConfig } from "@langchain/core/runnables";
 import { z } from "zod";
-import { getLocalLLm, getTavily, extractThinkAndContent, withLLMStructuredOutput, cloudLLM } from "../utils.js";
+import { getTavily, extractThinkAndContent, withLLMStructuredOutput, cloudLLM } from "../utils.js";
 import { ResearchState, SourceItem, RoutingDecision } from "./state.js";
 import { searchRelevantChunks, syncKnowledgeBaseVectors } from "../services/rag.service.js";
 
