@@ -1,5 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
 import MarkdownIt from "markdown-it";
+
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 import { VaultDrawer, TraceStep } from "./VaultDrawer.js";
 import { SourceItem, KnowledgeBaseEntry } from "../../graphs/state.js";
 import { MermaidDiagram } from "./MermaidDiagram.js";
@@ -505,6 +508,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
   const isAutoScrollEnabled = useRef(true);
+  const isInitialThreadLoadRef = useRef(true);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
   const lastScrollTopRef = useRef<number>(0);
   const touchStartYRef = useRef<number | null>(null);
@@ -515,6 +519,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     if (chatHistoryRef.current) {
       prevScrollHeightRef.current = chatHistoryRef.current.scrollHeight;
       isAutoScrollEnabled.current = false;
+      isInitialThreadLoadRef.current = false;
     }
     onLoadOlderMessages?.();
   }, [isLoadingOlderMessages, onLoadOlderMessages]);
@@ -527,6 +532,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
         behavior: smooth ? "smooth" : "auto",
       });
       isAutoScrollEnabled.current = true;
+      isInitialThreadLoadRef.current = false;
       setShowScrollBottom(false);
       setHasNewMessagesBelow(false);
     }
@@ -535,8 +541,8 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   // Immediate disengagement of auto-scroll when user spins wheel UP
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (e.deltaY < 0) {
-      // User is scrolling upwards away from bottom: release auto-scroll immediately
       isAutoScrollEnabled.current = false;
+      isInitialThreadLoadRef.current = false;
     }
   };
 
@@ -549,8 +555,8 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     if (touchStartYRef.current !== null && e.touches[0]) {
       const currentY = e.touches[0].clientY;
       if (currentY > touchStartYRef.current) {
-        // Dragging downwards to scroll upwards
         isAutoScrollEnabled.current = false;
+        isInitialThreadLoadRef.current = false;
       }
     }
   };
@@ -568,15 +574,17 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
       if (chatHistoryRef.current) {
         prevScrollHeightRef.current = chatHistoryRef.current.scrollHeight;
         isAutoScrollEnabled.current = false;
+        isInitialThreadLoadRef.current = false;
       }
       onLoadOlderMessages();
     }
 
-    // Any upward scroll immediately disables auto-scrolling (no 60px fighting zone)
+    // Any upward scroll immediately disables auto-scrolling
     if (scrollTop < prevScrollTop - 1) {
       isAutoScrollEnabled.current = false;
+      isInitialThreadLoadRef.current = false;
     } else if (distanceFromBottom <= 20) {
-      // Only re-enable auto-scroll when user has intentionally scrolled back down to the very bottom
+      // Re-enable auto-scroll when user intentionally scrolls back down to the very bottom
       isAutoScrollEnabled.current = true;
     }
 
@@ -590,8 +598,17 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     }
   };
 
-  // Auto-scroll when messages update, preserving position if prepending older history
-  useEffect(() => {
+  // Reset initial load flag when activeThreadId changes
+  useIsomorphicLayoutEffect(() => {
+    isInitialThreadLoadRef.current = true;
+    isAutoScrollEnabled.current = true;
+    setShowScrollBottom(false);
+    setHasNewMessagesBelow(false);
+  }, [activeThreadId]);
+
+  // Synchronous layout scroll: snaps instantly to bottom before browser paint
+  useIsomorphicLayoutEffect(() => {
+    // If older messages were prepended to the top (pagination), preserve previous scroll view
     if (prevScrollHeightRef.current !== null && chatHistoryRef.current) {
       const heightDifference = chatHistoryRef.current.scrollHeight - prevScrollHeightRef.current;
       if (heightDifference > 0) {
@@ -601,14 +618,25 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
       return;
     }
 
-    if (isAutoScrollEnabled.current) {
-      if (chatHistoryRef.current) {
-        requestAnimationFrame(() => {
-          if (chatHistoryRef.current && isAutoScrollEnabled.current) {
-            chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
-          }
-        });
+    const container = chatHistoryRef.current;
+    if (!container) return;
+
+    // When thread messages arrive initially: snap directly to bottom before paint
+    if (isInitialThreadLoadRef.current) {
+      if (messages.length > 0 && !isLoadingMessages) {
+        container.scrollTop = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollHeight;
+        isInitialThreadLoadRef.current = false;
+        setShowScrollBottom(false);
+        setHasNewMessagesBelow(false);
       }
+      return;
+    }
+
+    // Live streaming or newly added user/assistant messages: keep glued to bottom
+    if (isAutoScrollEnabled.current) {
+      container.scrollTop = container.scrollHeight;
+      lastScrollTopRef.current = container.scrollHeight;
       setShowScrollBottom(false);
       setHasNewMessagesBelow(false);
     } else {
@@ -617,20 +645,22 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
         setHasNewMessagesBelow(true);
       }
     }
-  }, [messages, isSubmitting]);
+  }, [messages, isLoadingMessages, isSubmitting]);
 
-  // Initial scroll when switching active thread
+  // ResizeObserver: keeps pinned to bottom if diagrams, fonts, or markdown expand
   useEffect(() => {
-    isAutoScrollEnabled.current = true;
-    setShowScrollBottom(false);
-    setHasNewMessagesBelow(false);
-    const timer = setTimeout(() => {
-      if (chatHistoryRef.current) {
-        chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
-        lastScrollTopRef.current = chatHistoryRef.current.scrollTop;
+    const container = chatHistoryRef.current;
+    if (!container || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      if (isInitialThreadLoadRef.current || isAutoScrollEnabled.current) {
+        container.scrollTop = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollHeight;
       }
-    }, 50);
-    return () => clearTimeout(timer);
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
   }, [activeThreadId]);
 
   const handlePromptSubmit = useCallback(
